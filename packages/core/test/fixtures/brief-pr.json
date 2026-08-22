@@ -1,0 +1,54 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "title": "Add retry logic to fetch client",
+        "url": "https://github.com/UiPath/flow-workbench/pull/42",
+        "author": { "login": "alice" },
+        "baseRefName": "main",
+        "headRefName": "feat/retry-logic",
+        "body": "Adds exponential backoff retries to the internal fetch client.\n\nFixes flaky CI on slow networks.",
+        "closingIssuesReferences": {
+          "nodes": [{ "number": 17, "title": "Fetch client fails on transient network errors" }]
+        },
+        "files": {
+          "nodes": [
+            { "path": "src/fetchClient.ts", "additions": 40, "deletions": 5 },
+            { "path": "src/fetchClient.test.ts", "additions": 60, "deletions": 0 }
+          ]
+        },
+        "reviewThreads": {
+          "nodes": [
+            {
+              "comments": {
+                "nodes": [
+                  {
+                    "author": { "login": "bob" },
+                    "path": "src/fetchClient.ts",
+                    "body": "Should this backoff be configurable?"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      { "__typename": "CheckRun", "name": "build", "conclusion": "SUCCESS" },
+                      { "__typename": "StatusContext", "context": "ci/lint", "state": "PENDING" }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

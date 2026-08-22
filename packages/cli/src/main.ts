@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { registerBrief } from "./commands/brief.js";
 import { registerComponents } from "./commands/components.js";
 import { registerLs } from "./commands/ls.js";
 import { registerScan } from "./commands/scan.js";
@@ -11,6 +12,7 @@ program.name("pr-lens").description("Prioritize open pull requests for review");
 registerScan(program);
 registerLs(program);
 registerComponents(program);
+registerBrief(program);
 
 try {
   await program.parseAsync(process.argv);
