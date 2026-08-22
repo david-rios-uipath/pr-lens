@@ -6,7 +6,8 @@
   "exports": { ".": "./dist/index.js" },
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsup src/index.ts --format esm --dts --sourcemap",
+    "dev": "tsup src/index.ts --format esm --dts --sourcemap --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": { "zod": "^3.23.8" }
