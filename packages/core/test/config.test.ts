@@ -39,10 +39,14 @@ describe("readConfig", () => {
     await expect(readConfig(dir)).rejects.toThrow(/config/i);
   });
 
-  it("throws a descriptive error for schema violations", async () => {
+  it("throws a human-readable error for schema violations", async () => {
     const dir = await mkdtemp(join(tmpdir(), "pr-lens-"));
     await mkdir(join(dir, ".pr-lens"), { recursive: true });
     await writeFile(join(dir, ".pr-lens", "config.json"), JSON.stringify({ repo: "bad-repo" }));
     await expect(readConfig(dir)).rejects.toThrow(/config/i);
+    await expect(readConfig(dir)).rejects.toSatisfy((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      return message.includes("repo:") && !message.includes('"code":');
+    });
   });
 });

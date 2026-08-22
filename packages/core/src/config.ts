@@ -42,7 +42,10 @@ export async function readConfig(dir: string): Promise<PrLensConfig> {
 
   const result = configSchema.safeParse(parsed);
   if (!result.success) {
-    throw new Error(`Invalid config file at ${path}: ${result.error.message}`);
+    const issues = result.error.issues
+      .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+      .join("; ");
+    throw new Error(`Invalid config file at ${path}: ${issues}`);
   }
   return result.data;
 }
