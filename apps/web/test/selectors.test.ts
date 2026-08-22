@@ -1,6 +1,6 @@
 import type { Report, ReportPr } from "@pr-lens/core";
 import { describe, expect, it } from "vitest";
-import { agoLabel, scoreOf, selectView, sizeBucket, topReasons } from "../src/lib/selectors.js";
+import { agoLabel, normalizeView, scoreOf, selectView, sizeBucket, topReasons } from "../src/lib/selectors.js";
 
 function makePr(overrides: Partial<ReportPr> & { number: number }): ReportPr {
   return {
@@ -164,6 +164,23 @@ describe("topReasons", () => {
     });
     expect(topReasons(pr, 3)).toEqual(["CI green", "1 approval", "small diff"]);
     expect(topReasons(pr, 3)).not.toContain("not implemented");
+  });
+});
+
+describe("normalizeView", () => {
+  it("resets affinity sort to reviewability when component is null", () => {
+    const result = normalizeView({ component: null, query: "", sort: "affinity" });
+    expect(result).toEqual({ component: null, query: "", sort: "reviewability" });
+  });
+
+  it("leaves affinity sort untouched when a component is selected", () => {
+    const opts = { component: "core", query: "", sort: "affinity" } as const;
+    expect(normalizeView(opts)).toEqual(opts);
+  });
+
+  it("leaves non-affinity sorts untouched regardless of component", () => {
+    const opts = { component: null, query: "x", sort: "newest" } as const;
+    expect(normalizeView(opts)).toEqual(opts);
   });
 });
 

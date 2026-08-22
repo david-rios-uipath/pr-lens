@@ -3,6 +3,7 @@ import { Box, Button, Flash, Heading, IconButton, Spinner, Text } from "@primer/
 import type { JSX } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { fetchReport, triggerScan } from "./api.js";
+import { FilterBar } from "./components/FilterBar.js";
 import { PrRow } from "./components/PrRow.js";
 import { afterDismissRefreshError, afterLoadError, afterRefreshError, afterReportLoaded } from "./lib/appState.js";
 import type { LoadState } from "./lib/appState.js";
@@ -15,8 +16,7 @@ function errorMessage(err: unknown): string {
 
 export function App(): JSX.Element {
   const [state, setState] = useState<LoadState>({ status: "loading" });
-  // Filter/sort controls land in Task 12; the setter will be wired up there.
-  const [view] = useState<ViewOptions>({ component: null, query: "", sort: "reviewability" });
+  const [view, setView] = useState<ViewOptions>({ component: null, query: "", sort: "reviewability" });
   const [scanning, setScanning] = useState(false);
 
   const load = useCallback(() => {
@@ -100,6 +100,8 @@ export function App(): JSX.Element {
         </Flash>
       )}
 
+      <FilterBar components={report.components} value={view} onChange={setView} />
+
       <Box sx={{ border: "1px solid", borderColor: "border.default", borderRadius: 2 }}>
         {rows.map((pr, index) => (
           <Box key={pr.number} sx={{ display: "flex", alignItems: "stretch" }}>
@@ -107,7 +109,11 @@ export function App(): JSX.Element {
               {index + 1}
             </Text>
             <Box sx={{ flex: 1 }}>
-              <PrRow pr={pr} />
+              {view.sort === "affinity" && view.component !== null ? (
+                <PrRow pr={pr} affinity={pr.componentShares[view.component] ?? 0} />
+              ) : (
+                <PrRow pr={pr} />
+              )}
             </Box>
           </Box>
         ))}

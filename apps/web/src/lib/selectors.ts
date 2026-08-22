@@ -58,6 +58,14 @@ export function selectView(report: Report, opts: ViewOptions): ReportPr[] {
   return sorted;
 }
 
+/** Affinity sort requires a selected component; otherwise fall back to reviewability. */
+export function normalizeView(opts: ViewOptions): ViewOptions {
+  if (opts.sort === "affinity" && opts.component === null) {
+    return { ...opts, sort: "reviewability" };
+  }
+  return opts;
+}
+
 export function topReasons(pr: ReportPr, n: number): string[] {
   const breakdown = pr.scores.reviewability?.breakdown ?? [];
   return [...breakdown]
