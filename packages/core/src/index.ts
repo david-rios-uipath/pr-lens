@@ -4,3 +4,4 @@ export * from "./types.js";
 export * from "./errors.js";
 export * from "./report.js";
 export * from "./scoring.js";
+export * from "./components.js";
