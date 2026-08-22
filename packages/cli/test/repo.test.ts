@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { RepoResolutionError } from "@pr-lens/core";
 import { describe, expect, it } from "vitest";
-import { resolveRepo } from "../src/repo.js";
+import { resolveRepo } from "../src/repo";
 
 const execFileAsync = promisify(execFile);
 

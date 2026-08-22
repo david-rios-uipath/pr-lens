@@ -2,15 +2,25 @@ import { readFile, realpath } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { extname, resolve, sep } from "node:path";
-import type { Report } from "@pr-lens/core";
-import { ReportNotFoundError } from "@pr-lens/core";
-import { messageFor } from "./fail.js";
+import type { Report, ReportSummary } from "@pr-lens/core";
+import { isValidRepoName, ReportNotFoundError } from "@pr-lens/core";
+import { messageFor } from "./fail";
 
 export interface ServerDeps {
   dir: string;
   webDist: string | null;
-  scan: () => Promise<Report>;
-  readReport: () => Promise<Report>;
+  scan: (repo?: string) => Promise<Report>;
+  readReport: (repo?: string) => Promise<Report>;
+  listReports: () => Promise<ReportSummary[]>;
+}
+
+/** Returns the validated ?repo= value, undefined if absent, or null if malformed. */
+function repoParam(url: string): string | undefined | null {
+  const value = new URL(url, "http://localhost").searchParams.get("repo");
+  if (value === null) {
+    return undefined;
+  }
+  return isValidRepoName(value) ? value : null;
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -110,28 +120,42 @@ async function serveStatic(webDist: string | null, pathname: string, req: Incomi
 }
 
 export function createServer(deps: ServerDeps): Server {
-  let inFlightScan: Promise<Report> | null = null;
+  const inFlightScans = new Map<string, Promise<Report>>();
 
-  function runScanOnce(): Promise<Report> {
-    inFlightScan ??= deps.scan().finally(() => {
-      inFlightScan = null;
+  function runScanOnce(repo?: string): Promise<Report> {
+    const key = repo ?? "";
+    const existing = inFlightScans.get(key);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const scan = deps.scan(repo).finally(() => {
+      inFlightScans.delete(key);
     });
-    return inFlightScan;
+    inFlightScans.set(key, scan);
+    return scan;
   }
 
-  async function handleReport(res: ServerResponse): Promise<void> {
+  async function handleReport(res: ServerResponse, repo?: string): Promise<void> {
     try {
-      const report = await deps.readReport();
+      const report = await deps.readReport(repo);
       sendJson(res, 200, report);
     } catch (err) {
       sendJson(res, err instanceof ReportNotFoundError ? 404 : 500, { error: messageFor(err) });
     }
   }
 
-  async function handleScan(res: ServerResponse): Promise<void> {
+  async function handleScan(res: ServerResponse, repo?: string): Promise<void> {
     try {
-      const report = await runScanOnce();
+      const report = await runScanOnce(repo);
       sendJson(res, 200, report);
+    } catch (err) {
+      sendJson(res, 500, { error: messageFor(err) });
+    }
+  }
+
+  async function handleRepos(res: ServerResponse): Promise<void> {
+    try {
+      sendJson(res, 200, { repos: await deps.listReports() });
     } catch (err) {
       sendJson(res, 500, { error: messageFor(err) });
     }
@@ -152,21 +176,27 @@ export function createServer(deps: ServerDeps): Server {
         return;
       }
 
-      if (pathname === "/api/report") {
+      if (pathname === "/api/report" || pathname === "/api/scan") {
+        const expected = pathname === "/api/report" ? "GET" : "POST";
+        if (method !== expected) {
+          sendJson(res, 405, { error: "Method Not Allowed" });
+          return;
+        }
+        const repo = repoParam(req.url ?? "/");
+        if (repo === null) {
+          sendJson(res, 400, { error: "Invalid repo parameter (expected owner/name)" });
+          return;
+        }
+        await (pathname === "/api/report" ? handleReport(res, repo) : handleScan(res, repo));
+        return;
+      }
+
+      if (pathname === "/api/repos") {
         if (method !== "GET") {
           sendJson(res, 405, { error: "Method Not Allowed" });
           return;
         }
-        await handleReport(res);
-        return;
-      }
-
-      if (pathname === "/api/scan") {
-        if (method !== "POST") {
-          sendJson(res, 405, { error: "Method Not Allowed" });
-          return;
-        }
-        await handleScan(res);
+        await handleRepos(res);
         return;
       }
 

@@ -1,5 +1,5 @@
-import type { DimensionScore, FactorBreakdown } from "./report.js";
-import type { PrData } from "./types.js";
+import type { DimensionScore, FactorBreakdown } from "./report";
+import type { PrData } from "./types";
 
 export interface FactorResult {
   value: number;
@@ -30,53 +30,6 @@ const filesTouchedFactor: Factor = {
     return { value, reason: `${String(pr.changedFiles)} files` };
   },
 };
-
-const ciStatusFactor: Factor = {
-  name: "ciStatus",
-  weight: 0.2,
-  evaluate(pr) {
-    switch (pr.ci) {
-      case "SUCCESS":
-        return { value: 1, reason: "CI green" };
-      case "NONE":
-        return { value: 0.6, reason: "no CI" };
-      case "PENDING":
-        return { value: 0.3, reason: "CI pending" };
-      case "FAILURE":
-        return { value: 0, reason: "CI failing" };
-    }
-  },
-};
-
-const reviewStateFactor: Factor = {
-  name: "reviewState",
-  weight: 0.15,
-  evaluate(pr) {
-    if (pr.isDraft) return { value: 0, reason: "draft" };
-    if (pr.reviewState === "CHANGES_REQUESTED") {
-      return { value: 0.2, reason: "changes requested" };
-    }
-    if (pr.approvals > 0) {
-      return { value: 1, reason: `${String(pr.approvals)} approval(s)` };
-    }
-    return { value: 0.7, reason: "awaiting review" };
-  },
-};
-
-function makeAgeFactor(now: () => number): Factor {
-  return {
-    name: "age",
-    weight: 0.1,
-    evaluate(pr) {
-      const hours = (now() - new Date(pr.updatedAt).getTime()) / (1000 * 60 * 60);
-      if (hours < 1) return { value: 0.8, reason: "very fresh" };
-      if (hours < 24) return { value: 1, reason: "updated today" };
-      if (hours < 72) return { value: 0.8, reason: "updated this week" };
-      if (hours < 168) return { value: 0.6, reason: "updated within 7d" };
-      return { value: 0.3, reason: "stale" };
-    },
-  };
-}
 
 const DOCS_EXT = /\.(md|mdx|txt)$/i;
 const TEST_DIR = /(^|\/)(tests?|__tests__|spec)\//;
@@ -127,20 +80,13 @@ const codeComplexityFactor: Factor = {
   },
 };
 
-export function makeReviewabilityFactors(now: () => number): readonly Factor[] {
-  return [
-    diffSizeFactor,
-    filesTouchedFactor,
-    ciStatusFactor,
-    reviewStateFactor,
-    makeAgeFactor(now),
-    changeNatureFactor,
-    mergeabilityFactor,
-    codeComplexityFactor,
-  ];
-}
-
-export const REVIEWABILITY_FACTORS: readonly Factor[] = makeReviewabilityFactors(() => Date.now());
+export const REVIEWABILITY_FACTORS: readonly Factor[] = [
+  diffSizeFactor,
+  filesTouchedFactor,
+  changeNatureFactor,
+  mergeabilityFactor,
+  codeComplexityFactor,
+];
 
 export function evaluateDimension(factors: readonly Factor[], pr: PrData): DimensionScore {
   const breakdown: FactorBreakdown[] = factors.map((f) => {

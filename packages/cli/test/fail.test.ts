@@ -5,7 +5,7 @@ import {
   TokenMissingError,
 } from "@pr-lens/core";
 import { describe, expect, it } from "vitest";
-import { messageFor } from "../src/fail.js";
+import { messageFor } from "../src/fail";
 
 describe("messageFor", () => {
   it("returns the message for TokenMissingError", () => {

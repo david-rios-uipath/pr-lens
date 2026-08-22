@@ -1,11 +1,11 @@
 export const CORE_VERSION = "0.1.0";
 
-export * from "./types.js";
-export * from "./errors.js";
-export * from "./report.js";
-export * from "./scoring.js";
-export * from "./components.js";
-export * from "./github.js";
-export * from "./config.js";
-export * from "./scan.js";
-export * from "./brief.js";
+export * from "./types";
+export * from "./errors";
+export * from "./report";
+export * from "./scoring";
+export * from "./components";
+export * from "./github";
+export * from "./config";
+export * from "./scan";
+export * from "./brief";

@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { GithubApiError } from "./errors.js";
-import type { FetchLike } from "./github.js";
-import type { DimensionScore } from "./report.js";
-import type { PrFile } from "./types.js";
+import { GithubApiError } from "./errors";
+import type { FetchLike } from "./github";
+import type { DimensionScore } from "./report";
+import type { PrFile } from "./types";
 
 const GITHUB_GRAPHQL_URL = "https://api.github.com/graphql";
 

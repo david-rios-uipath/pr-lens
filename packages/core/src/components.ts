@@ -1,4 +1,4 @@
-import type { PrFile } from "./types.js";
+import type { PrFile } from "./types";
 
 export const CROSS_CUTTING = "cross-cutting";
 

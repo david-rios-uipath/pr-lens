@@ -1,11 +1,12 @@
 import { affinityScore, readReport, runScan } from "@pr-lens/core";
 import type { Command } from "commander";
-import { fail } from "../fail.js";
-import type { LsOptions } from "../render.js";
-import { renderTable, sanitize, selectPrs, staleMs, timeAgo } from "../render.js";
-import { resolveRepo } from "../repo.js";
+import { fail } from "../fail";
+import type { LsOptions } from "../render";
+import { renderTable, sanitize, selectPrs, staleMs, timeAgo } from "../render";
+import { resolveRepo } from "../repo";
 
 interface LsCliOptions {
+  repo?: string;
   component?: string;
   sort: string;
   limit: string;
@@ -24,6 +25,7 @@ export function registerLs(program: Command): void {
   program
     .command("ls")
     .description("List open PRs ranked by score")
+    .option("--repo <owner/name>", "repo whose report to read")
     .option("--component <name>", "filter to PRs touching this component")
     .option("--sort <dim>", "reviewability or affinity", "reviewability")
     .option("--limit <n>", "max rows to show", "20")
@@ -32,13 +34,13 @@ export function registerLs(program: Command): void {
     .action(async (options: LsCliOptions) => {
       try {
         const dir = process.cwd();
-        let report = await readReport(dir);
+        const repo = await resolveRepo(options.repo === undefined ? { dir } : { flag: options.repo, dir });
+        let report = await readReport(dir, repo);
 
         if (options.staleAfter !== undefined) {
           const maxAgeMs = staleMs(options.staleAfter);
           const ageMs = Date.now() - new Date(report.generatedAt).getTime();
           if (ageMs > maxAgeMs) {
-            const repo = await resolveRepo({ dir });
             report = await runScan({ repo, dir });
           }
         }

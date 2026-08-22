@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { z } from "zod";
-import { GithubApiError, TokenMissingError } from "./errors.js";
-import type { CiStatus, PrData, ReviewState } from "./types.js";
+import { GithubApiError, TokenMissingError } from "./errors";
+import type { CiStatus, PrData, ReviewState } from "./types";
 
 const execFileAsync = promisify(execFile);
 
@@ -13,7 +13,7 @@ const GITHUB_GRAPHQL_URL = "https://api.github.com/graphql";
 const PR_NODE_QUERY = `
   query($owner: String!, $name: String!, $after: String) {
     repository(owner: $owner, name: $name) {
-      pullRequests(states: OPEN, first: 50, after: $after) {
+      pullRequests(states: OPEN, first: 100, after: $after) {
         nodes {
           number
           title
@@ -25,12 +25,13 @@ const PR_NODE_QUERY = `
           deletions
           changedFiles
           mergeable
+          baseRefName
           author { login }
           labels(first: 20) { nodes { name } }
           reviewDecision
-          latestOpinionatedReviews: reviews(states: APPROVED, first: 1) { totalCount }
+          latestReviews(first: 30) { nodes { state submittedAt } }
           commits(last: 1) {
-            nodes { commit { statusCheckRollup { state } } }
+            nodes { commit { statusCheckRollup { state } pushedDate committedDate } }
           }
           files(first: 100) { nodes { path additions deletions } }
         }
@@ -51,15 +52,20 @@ const prNodeSchema = z.object({
   deletions: z.number(),
   changedFiles: z.number(),
   mergeable: z.enum(["MERGEABLE", "CONFLICTING", "UNKNOWN"]),
+  baseRefName: z.string(),
   author: z.object({ login: z.string() }).nullable(),
   labels: z.object({ nodes: z.array(z.object({ name: z.string() })) }),
   reviewDecision: z.enum(["APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"]).nullable(),
-  latestOpinionatedReviews: z.object({ totalCount: z.number() }),
+  latestReviews: z.object({
+    nodes: z.array(z.object({ state: z.string(), submittedAt: z.string().nullable() })),
+  }),
   commits: z.object({
     nodes: z.array(
       z.object({
         commit: z.object({
           statusCheckRollup: z.object({ state: z.string() }).nullable(),
+          pushedDate: z.string().nullable(),
+          committedDate: z.string(),
         }),
       }),
     ),
@@ -101,6 +107,23 @@ const graphqlEnvelopeSchema = z.object({
 
 type PrNode = z.infer<typeof prNodeSchema>;
 
+const branchRulesSchema = z.array(
+  z.object({
+    type: z.string(),
+    parameters: z.unknown().optional(),
+  }),
+);
+
+const pullRequestRuleParamsSchema = z.object({
+  required_approving_review_count: z.number().optional(),
+  require_last_push_approval: z.boolean().optional(),
+});
+
+interface PullRequestRule {
+  requiredApprovingReviewCount: number;
+  requireLastPushApproval: boolean;
+}
+
 function mapCiStatus(state: string | null | undefined): CiStatus {
   if (state === "SUCCESS") return "SUCCESS";
   if (state === "FAILURE" || state === "ERROR") return "FAILURE";
@@ -108,11 +131,75 @@ function mapCiStatus(state: string | null | undefined): CiStatus {
   return "NONE";
 }
 
-function mapReviewState(decision: PrNode["reviewDecision"]): ReviewState {
-  return decision ?? "NONE";
+function countApprovals(node: PrNode): number {
+  return node.latestReviews.nodes.filter((r) => r.state === "APPROVED").length;
 }
 
-function mapNode(node: PrNode): PrData {
+/**
+ * reviewDecision is null on repos whose review requirements live in rulesets.
+ * Fall back to comparing current approvals (latest per author, so
+ * stale-but-undismissed ones still count) against the base branch's rule.
+ */
+function resolveReviewState(node: PrNode, rule: PullRequestRule | undefined): ReviewState {
+  if (node.reviewDecision !== null) return node.reviewDecision;
+  if (node.latestReviews.nodes.some((r) => r.state === "CHANGES_REQUESTED")) return "CHANGES_REQUESTED";
+
+  const approvals = node.latestReviews.nodes.filter(
+    (r) => r.state === "APPROVED" && r.submittedAt !== null,
+  );
+  if (rule === undefined) return approvals.length > 0 ? "APPROVED" : "NONE";
+  if (approvals.length < rule.requiredApprovingReviewCount) return "REVIEW_REQUIRED";
+
+  if (rule.requireLastPushApproval) {
+    const head = node.commits.nodes[0]?.commit;
+    const pushedAt = head?.pushedDate ?? head?.committedDate;
+    if (pushedAt !== undefined && !approvals.some((a) => a.submittedAt !== null && a.submittedAt > pushedAt)) {
+      return "REVIEW_REQUIRED";
+    }
+  }
+  return "APPROVED";
+}
+
+async function fetchBranchRule(
+  owner: string,
+  name: string,
+  branch: string,
+  token: string,
+  fetchImpl: FetchLike,
+): Promise<PullRequestRule | undefined> {
+  const url = `https://api.github.com/repos/${owner}/${name}/rules/branches/${encodeURIComponent(branch)}`;
+  const response = await fetchImpl(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new GithubApiError(
+      `GitHub branch rules request failed with status ${String(response.status)}`,
+      response.status,
+      rateLimitResetAt(response),
+    );
+  }
+
+  const raw: unknown = await response.json();
+  const rules = branchRulesSchema.safeParse(raw);
+  if (!rules.success) {
+    throw new GithubApiError(`Invalid branch rules response: ${rules.error.message}`, response.status);
+  }
+
+  const prRule = rules.data.find((r) => r.type === "pull_request");
+  if (prRule === undefined) return undefined;
+
+  const params = pullRequestRuleParamsSchema.safeParse(prRule.parameters ?? {});
+  return {
+    requiredApprovingReviewCount: params.success ? (params.data.required_approving_review_count ?? 0) : 0,
+    requireLastPushApproval: params.success && (params.data.require_last_push_approval ?? false),
+  };
+}
+
+function mapNode(node: PrNode, rule: PullRequestRule | undefined): PrData {
   const rollup = node.commits.nodes[0]?.commit.statusCheckRollup;
   return {
     number: node.number,
@@ -126,9 +213,9 @@ function mapNode(node: PrNode): PrData {
     additions: node.additions,
     deletions: node.deletions,
     changedFiles: node.changedFiles,
-    approvals: node.latestOpinionatedReviews.totalCount,
+    approvals: countApprovals(node),
     ci: mapCiStatus(rollup?.state),
-    reviewState: mapReviewState(node.reviewDecision),
+    reviewState: resolveReviewState(node, rule),
     labels: node.labels.nodes.map((l) => l.name),
     files: node.files.nodes.map((f) => ({
       path: f.path,
@@ -178,7 +265,7 @@ export async function fetchOpenPrs(
     throw new GithubApiError(`Invalid repo format: ${repo}`, 400);
   }
 
-  const results: PrData[] = [];
+  const nodes: PrNode[] = [];
   let after: string | null = null;
   let hasNextPage = true;
 
@@ -220,10 +307,19 @@ export async function fetchOpenPrs(
     }
 
     const page = parsed.data.data.repository.pullRequests;
-    results.push(...page.nodes.map(mapNode));
+    nodes.push(...page.nodes);
     hasNextPage = page.pageInfo.hasNextPage;
     after = page.pageInfo.endCursor;
   }
 
-  return results;
+  // Branch rules only matter when reviewDecision is null; one fetch per distinct base branch.
+  const branchesNeedingRules = [
+    ...new Set(nodes.filter((n) => n.reviewDecision === null).map((n) => n.baseRefName)),
+  ];
+  const rules = await Promise.all(
+    branchesNeedingRules.map((branch) => fetchBranchRule(owner, name, branch, token, fetchImpl)),
+  );
+  const rulesByBranch = new Map(branchesNeedingRules.map((branch, i) => [branch, rules[i]]));
+
+  return nodes.map((node) => mapNode(node, rulesByBranch.get(node.baseRefName)));
 }

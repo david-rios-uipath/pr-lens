@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { readReport, runScan } from "@pr-lens/core";
+import { listReports, readReport, runScan } from "@pr-lens/core";
 import type { Command } from "commander";
-import { fail } from "../fail.js";
-import { resolveRepo } from "../repo.js";
-import { createServer } from "../server.js";
+import { fail } from "../fail";
+import { resolveRepo } from "../repo";
+import { createServer } from "../server";
 
 const DEFAULT_PORT = 4310;
 
@@ -29,11 +29,15 @@ export function registerWeb(program: Command): void {
       const server = createServer({
         dir,
         webDist: resolveWebDist(),
-        scan: async () => {
-          const repo = await resolveRepo({ dir });
-          return runScan({ repo, dir });
+        scan: async (repo?: string) => {
+          const target = repo ?? (await resolveRepo({ dir }));
+          return runScan({ repo: target, dir });
         },
-        readReport: () => readReport(dir),
+        readReport: async (repo?: string) => {
+          const target = repo ?? (await resolveRepo({ dir }));
+          return readReport(dir, target);
+        },
+        listReports: () => listReports(dir),
       });
 
       server.listen(port, "127.0.0.1", () => {

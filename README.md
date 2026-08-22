@@ -22,8 +22,10 @@ Run it via:
   your `PATH`.
 
 Commands operate on the current working directory: they look for
-`.pr-lens/report.json` and `.pr-lens/config.json` relative to `process.cwd()`,
-so run them from the repo (or scratch directory) you want to scan.
+`.pr-lens/reports/` and `.pr-lens/config.json` relative to `process.cwd()`.
+Reports are stored per repo (one file per `owner/name`), so a single
+directory can hold reports for several repos side by side; pass `--repo` to
+pick one, or let it resolve from config / the git remote.
 
 ## Token setup
 
@@ -54,7 +56,7 @@ pr-lens scan --repo UiPath/flow-workbench
 Output:
 
 ```
-Scanned 3 open PRs in UiPath/flow-workbench → .pr-lens/report.json
+Scanned 3 open PRs in UiPath/flow-workbench → .pr-lens/reports/UiPath__flow-workbench.json
 ```
 
 ### `ls`
@@ -75,6 +77,8 @@ UiPath/flow-workbench · generated 11 h ago
 
 Options:
 
+- `--repo <owner/name>` — repo whose report to read (default: same
+  resolution order as `scan`).
 - `--component <name>` — filter to PRs whose primary or secondary component
   matches (see [Components](#components-1) below).
 - `--sort <dim>` — `reviewability` (default) or `affinity`. `affinity`
@@ -125,7 +129,8 @@ UiPath/flow-workbench · generated 11 h ago
 
 ### `components`
 
-Lists detected components and how many open PRs touch each.
+Lists detected components and how many open PRs touch each. Accepts
+`--repo <owner/name>` like `ls`.
 
 ```
 pr-lens components
@@ -199,14 +204,14 @@ _none_
 - `--md` — markdown output (default; explicit flag is a no-op).
 
 `brief` needs a resolved repo (same resolution order as `scan`) and a
-GitHub token; it does not require a prior `scan`, but if `.pr-lens/report.json`
-exists and contains that PR number, its cached `reviewability` score is
-attached to the output.
+GitHub token; it does not require a prior `scan`, but if that repo's stored
+report contains the PR number, its cached `reviewability` score is attached
+to the output.
 
 ### `web`
 
 Serves the built web UI (`apps/web/dist`) plus a small JSON API over the
-current directory's report.
+current directory's stored reports.
 
 ```
 pr-lens web --port 4310
@@ -217,9 +222,12 @@ pr-lens web on http://localhost:4310
 ```
 
 - `--port <n>` — port to listen on (default `4310`).
-- `GET /api/report` — returns the cached report, or 404 if none exists yet.
-- `POST /api/scan` — runs a fresh scan (resolving the repo the same way as
-  `scan`) and returns the new report. Concurrent scan requests are
+- `GET /api/repos` — lists stored reports (`{ repos: [{ repo, generatedAt }] }`),
+  newest first.
+- `GET /api/report[?repo=owner/name]` — returns that repo's cached report
+  (default: repo resolved the same way as `scan`), or 404 if none exists yet.
+- `POST /api/scan[?repo=owner/name]` — runs a fresh scan for that repo and
+  returns the new report. Concurrent scan requests for the same repo are
   coalesced into a single in-flight scan.
 
 If `apps/web/dist` hasn't been built, static asset requests return 503 with
@@ -228,14 +236,17 @@ the root).
 
 The UI is a dark, GitHub-styled table (built with Vite + React +
 `@primer/react`) that reads `/api/report` on load and has a Refresh button
-that calls `POST /api/scan`.
+that calls `POST /api/scan`. When more than one repo has a stored report,
+the header title becomes a menu for switching between them.
 
 ## File formats
 
-### `.pr-lens/report.json`
+### `.pr-lens/reports/<owner>__<name>.json`
 
-Written by `scan`, read by `ls`, `components`, and `web`. Validated against a
-zod schema (`@pr-lens/core`'s `reportSchema`) on read.
+Written by `scan` (one file per repo), read by `ls`, `components`, and `web`.
+Validated against a zod schema (`@pr-lens/core`'s `reportSchema`) on read. A
+pre-multi-repo `.pr-lens/report.json` is still read as a fallback for the
+repo it belongs to, so existing reports keep working.
 
 ```json
 {
@@ -279,16 +290,13 @@ isn't stored per PR — it's computed on demand from `componentShares` for
 whichever `--component` you filter on (`ls --sort affinity`, or
 `affinityScore()` from `@pr-lens/core`).
 
-The eight reviewability factors (each a `{ factor, weight, value, reason }`
+The five reviewability factors (each a `{ factor, weight, value, reason }`
 entry in `breakdown`):
 
 | Factor | Default weight | What it measures |
 | --- | --- | --- |
 | `diffSize` | 0.25 | Total lines changed (smaller = higher) |
 | `filesTouched` | 0.15 | Number of changed files (fewer = higher) |
-| `ciStatus` | 0.20 | CI rollup state (green > none > pending > failing) |
-| `reviewState` | 0.15 | Draft / changes-requested / approved / awaiting |
-| `age` | 0.10 | Recency of last update |
 | `changeNature` | 0.10 | Docs-only / test-only / config-only vs. mixed |
 | `mergeability` | 0.05 | Merge conflict state |
 | `codeComplexity` | 0 | **Reserved placeholder — algorithm TBD.** Always contributes value `0` at weight `0`, so it never affects the score. |
@@ -303,7 +311,7 @@ resolution).
   "repo": "owner/name",
   "weights": {
     "diffSize": 0.3,
-    "ciStatus": 0.25
+    "filesTouched": 0.25
   }
 }
 ```
@@ -311,7 +319,7 @@ resolution).
 - `repo` — optional `owner/name` override, checked before falling back to
   the git remote.
 - `weights` — optional partial override of factor weights by name (any of
-  the eight factor names above). Unspecified factors keep their defaults.
+  the five factor names above). Unspecified factors keep their defaults.
   Weights don't need to sum to 1; `reviewability` is a weighted average over
   factors with weight > 0.
 

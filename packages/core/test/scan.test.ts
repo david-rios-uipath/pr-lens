@@ -2,9 +2,9 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { reportSchema } from "../src/report.js";
-import { buildReport, runScan } from "../src/scan.js";
-import type { PrData } from "../src/types.js";
+import { reportSchema } from "../src/report";
+import { buildReport, runScan } from "../src/scan";
+import type { PrData } from "../src/types";
 
 const NOW = new Date("2026-08-21T00:00:00.000Z").getTime();
 
@@ -89,7 +89,7 @@ describe("buildReport", () => {
 
   it("applies weight overrides to reviewability scoring", () => {
     const defaultReport = buildReport("o/r", [giantPr], () => NOW);
-    const overriddenReport = buildReport("o/r", [giantPr], () => NOW, { ciStatus: 0 });
+    const overriddenReport = buildReport("o/r", [giantPr], () => NOW, { diffSize: 0 });
     expect(overriddenReport.prs[0]?.scores.reviewability.score).not.toBe(
       defaultReport.prs[0]?.scores.reviewability.score,
     );
@@ -98,7 +98,10 @@ describe("buildReport", () => {
 
 function makeFetchStub() {
   let call = 0;
-  return async () => {
+  return async (url: string) => {
+    if (url.includes("/rules/branches/")) {
+      return new Response("[]", { status: 200 });
+    }
     call += 1;
     const path = new URL(`./fixtures/prs-page${String(call)}.json`, import.meta.url);
     return new Response(await readFile(path, "utf8"), { status: 200 });
@@ -116,7 +119,7 @@ describe("runScan", () => {
     });
 
     expect(report.prs).toHaveLength(3);
-    const written = await readFile(join(dir, ".pr-lens", "report.json"), "utf8");
+    const written = await readFile(join(dir, ".pr-lens", "reports", "UiPath__flow-workbench.json"), "utf8");
     const parsed: unknown = JSON.parse(written);
     expect(reportSchema.parse(parsed)).toEqual(report);
   });
@@ -134,7 +137,7 @@ describe("runScan", () => {
     await mkdir(join(dirCustom, ".pr-lens"), { recursive: true });
     await writeFile(
       join(dirCustom, ".pr-lens", "config.json"),
-      JSON.stringify({ weights: { ciStatus: 0, diffSize: 1 } }),
+      JSON.stringify({ weights: { filesTouched: 0, diffSize: 1 } }),
     );
     const reportCustom = await runScan({
       repo: "UiPath/flow-workbench",

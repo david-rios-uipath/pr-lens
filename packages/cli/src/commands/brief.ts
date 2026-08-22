@@ -8,17 +8,17 @@ import {
   sanitizeMultiline,
 } from "@pr-lens/core";
 import type { Command } from "commander";
-import { fail } from "../fail.js";
-import { resolveRepo } from "../repo.js";
+import { fail } from "../fail";
+import { resolveRepo } from "../repo";
 
 interface BriefCliOptions {
   json?: boolean;
   md?: boolean;
 }
 
-async function findScore(dir: string, number: number): Promise<DimensionScore | undefined> {
+async function findScore(dir: string, repo: string, number: number): Promise<DimensionScore | undefined> {
   try {
-    const report = await readReport(dir);
+    const report = await readReport(dir, repo);
     return report.prs.find((pr) => pr.number === number)?.scores.reviewability;
   } catch (err) {
     if (err instanceof ReportNotFoundError) {
@@ -45,7 +45,7 @@ export function registerBrief(program: Command): void {
         const repo = await resolveRepo({ dir });
         const token = await resolveToken();
         const brief = await fetchBrief(repo, number, token);
-        const score = await findScore(dir, number);
+        const score = await findScore(dir, repo, number);
 
         if (options.json === true) {
           console.log(JSON.stringify({ ...brief, score }, null, 2));

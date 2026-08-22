@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { fetchBrief, renderBriefMarkdown, sanitizeMultiline } from "../src/brief.js";
-import { GithubApiError } from "../src/errors.js";
-import type { DimensionScore } from "../src/report.js";
+import { fetchBrief, renderBriefMarkdown, sanitizeMultiline } from "../src/brief";
+import { GithubApiError } from "../src/errors";
+import type { DimensionScore } from "../src/report";
 
 const ESC = String.fromCharCode(27);
 const BELL = String.fromCharCode(7);

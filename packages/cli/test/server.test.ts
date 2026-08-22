@@ -6,8 +6,8 @@ import { join } from "node:path";
 import type { Report } from "@pr-lens/core";
 import { ReportNotFoundError, TokenMissingError } from "@pr-lens/core";
 import { afterEach, describe, expect, it } from "vitest";
-import { createServer } from "../src/server.js";
-import type { ServerDeps } from "../src/server.js";
+import { createServer } from "../src/server";
+import type { ServerDeps } from "../src/server";
 
 const FIXTURE_REPORT: Report = {
   repo: "acme/widgets",
@@ -42,6 +42,7 @@ function baseDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
     webDist: null,
     scan: () => Promise.resolve(FIXTURE_REPORT),
     readReport: () => Promise.resolve(FIXTURE_REPORT),
+    listReports: () => Promise.resolve([{ repo: FIXTURE_REPORT.repo, generatedAt: FIXTURE_REPORT.generatedAt }]),
     ...overrides,
   };
 }
@@ -156,6 +157,65 @@ describe("createServer", () => {
     expect(res.status).toBe(200);
     const body: unknown = await res.json();
     expect(body).toEqual(FIXTURE_REPORT);
+  });
+
+  it("GET /api/report passes the ?repo= parameter through to readReport", async () => {
+    const seen: (string | undefined)[] = [];
+    server = createServer(
+      baseDeps({
+        readReport: (repo) => {
+          seen.push(repo);
+          return Promise.resolve(FIXTURE_REPORT);
+        },
+      }),
+    );
+    const base = await listen(server);
+
+    expect((await fetch(`${base}/api/report?repo=acme/widgets`)).status).toBe(200);
+    expect((await fetch(`${base}/api/report`)).status).toBe(200);
+    expect(seen).toEqual(["acme/widgets", undefined]);
+  });
+
+  it("rejects a malformed ?repo= parameter with 400", async () => {
+    server = createServer(baseDeps());
+    const base = await listen(server);
+
+    const report = await fetch(`${base}/api/report?repo=${encodeURIComponent("../etc")}`);
+    expect(report.status).toBe(400);
+    const scan = await fetch(`${base}/api/scan?repo=no-slash`, { method: "POST" });
+    expect(scan.status).toBe(400);
+  });
+
+  it("GET /api/repos returns the stored report summaries", async () => {
+    server = createServer(baseDeps());
+    const base = await listen(server);
+
+    const res = await fetch(`${base}/api/repos`);
+    expect(res.status).toBe(200);
+    const body: unknown = await res.json();
+    expect(body).toEqual({ repos: [{ repo: FIXTURE_REPORT.repo, generatedAt: FIXTURE_REPORT.generatedAt }] });
+  });
+
+  it("scans of different repos run concurrently, same repo is deduplicated", async () => {
+    const calls: (string | undefined)[] = [];
+    server = createServer(
+      baseDeps({
+        scan: async (repo) => {
+          calls.push(repo);
+          await new Promise((r) => setTimeout(r, 20));
+          return FIXTURE_REPORT;
+        },
+      }),
+    );
+    const base = await listen(server);
+
+    const results = await Promise.all([
+      fetch(`${base}/api/scan?repo=acme/one`, { method: "POST" }),
+      fetch(`${base}/api/scan?repo=acme/one`, { method: "POST" }),
+      fetch(`${base}/api/scan?repo=acme/two`, { method: "POST" }),
+    ]);
+    expect(results.map((r) => r.status)).toEqual([200, 200, 200]);
+    expect(calls).toEqual(["acme/one", "acme/two"]);
   });
 
   it("serializes concurrent scans into a single in-flight call", async () => {

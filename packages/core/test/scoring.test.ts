@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { PrData } from "../src/types.js";
-import { affinityScore, evaluateDimension, makeReviewabilityFactors, scorePr } from "../src/scoring.js";
+import type { PrData } from "../src/types";
+import { affinityScore, evaluateDimension, REVIEWABILITY_FACTORS, scorePr } from "../src/scoring";
 
-const NOW = new Date("2026-08-21T12:00:00Z").getTime();
-const factors = makeReviewabilityFactors(() => NOW);
+const factors = REVIEWABILITY_FACTORS;
 
 function pr(overrides: Partial<PrData>): PrData {
   return {
@@ -18,21 +17,19 @@ function pr(overrides: Partial<PrData>): PrData {
 }
 
 describe("evaluateDimension", () => {
-  it("scores a tiny green PR high and a huge red draft low", () => {
+  it("scores a tiny PR high and a huge conflicting PR low", () => {
     const easy = evaluateDimension(factors, pr({}));
     const hard = evaluateDimension(factors, pr({
-      additions: 3000, deletions: 500, changedFiles: 80, isDraft: true,
-      ci: "FAILURE", mergeable: "CONFLICTING", updatedAt: "2026-08-01T00:00:00Z",
+      additions: 3000, deletions: 500, changedFiles: 80, mergeable: "CONFLICTING",
     }));
-    expect(easy.score).toBeGreaterThan(75);
+    expect(easy.score).toBeGreaterThan(60);
     expect(hard.score).toBeLessThan(15);
   });
 
   it("includes every factor in the breakdown, including codeComplexity", () => {
     const { breakdown } = evaluateDimension(factors, pr({}));
     expect(breakdown.map((b) => b.factor)).toEqual([
-      "diffSize", "filesTouched", "ciStatus", "reviewState",
-      "age", "changeNature", "mergeability", "codeComplexity",
+      "diffSize", "filesTouched", "changeNature", "mergeability", "codeComplexity",
     ]);
     const cc = breakdown.find((b) => b.factor === "codeComplexity");
     expect(cc).toMatchObject({ weight: 0, value: 0 });
@@ -44,19 +41,25 @@ describe("evaluateDimension", () => {
     expect(docs.score).toBeGreaterThan(mixed.score);
   });
 
-  it("penalizes changes-requested and rewards approvals", () => {
+  it("ignores review state, approvals, CI, and age", () => {
+    const base = evaluateDimension(factors, pr({}));
     const cr = evaluateDimension(factors, pr({ reviewState: "CHANGES_REQUESTED" }));
     const ok = evaluateDimension(factors, pr({ approvals: 1, reviewState: "APPROVED" }));
-    expect(ok.score).toBeGreaterThan(cr.score);
+    const redCi = evaluateDimension(factors, pr({ ci: "FAILURE" }));
+    const stale = evaluateDimension(factors, pr({ updatedAt: "2025-01-01T00:00:00Z" }));
+    expect(cr.score).toBe(base.score);
+    expect(ok.score).toBe(base.score);
+    expect(redCi.score).toBe(base.score);
+    expect(stale.score).toBe(base.score);
   });
 });
 
 describe("scorePr", () => {
   it("returns a reviewability dimension and honors weight overrides", () => {
-    const base = scorePr(pr({ ci: "FAILURE" }));
-    const noCi = scorePr(pr({ ci: "FAILURE" }), { ciStatus: 0 });
+    const base = scorePr(pr({ additions: 3000, deletions: 500 }));
+    const noSize = scorePr(pr({ additions: 3000, deletions: 500 }), { diffSize: 0 });
     expect(base.reviewability).toBeDefined();
-    expect(noCi.reviewability?.score ?? 0).toBeGreaterThan(base.reviewability?.score ?? 101);
+    expect(noSize.reviewability?.score ?? 0).toBeGreaterThan(base.reviewability?.score ?? 101);
   });
 });
 

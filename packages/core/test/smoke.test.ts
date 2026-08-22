@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CORE_VERSION } from "../src/index.js";
+import { CORE_VERSION } from "../src/index";
 
 describe("workspace smoke", () => {
   it("exports a version", () => {

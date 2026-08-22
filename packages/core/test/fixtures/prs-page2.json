@@ -14,21 +14,49 @@
             "deletions": 5,
             "changedFiles": 3,
             "mergeable": "UNKNOWN",
-            "author": { "login": "bob" },
-            "labels": { "nodes": [{ "name": "feature" }] },
+            "author": {
+              "login": "bob"
+            },
+            "labels": {
+              "nodes": [
+                {
+                  "name": "feature"
+                }
+              ]
+            },
             "reviewDecision": null,
-            "latestOpinionatedReviews": { "totalCount": 0 },
             "commits": {
               "nodes": [
-                { "commit": { "statusCheckRollup": { "state": "PENDING" } } }
+                {
+                  "commit": {
+                    "statusCheckRollup": {
+                      "state": "PENDING"
+                    },
+                    "pushedDate": "2026-08-01T09:00:00Z",
+                    "committedDate": "2026-08-01T08:00:00Z"
+                  }
+                }
               ]
             },
             "files": {
-              "nodes": [{ "path": "src/feature.ts", "additions": 30, "deletions": 5 }]
+              "nodes": [
+                {
+                  "path": "src/feature.ts",
+                  "additions": 30,
+                  "deletions": 5
+                }
+              ]
+            },
+            "baseRefName": "main",
+            "latestReviews": {
+              "nodes": []
             }
           }
         ],
-        "pageInfo": { "hasNextPage": false, "endCursor": null }
+        "pageInfo": {
+          "hasNextPage": false,
+          "endCursor": null
+        }
       }
     }
   }

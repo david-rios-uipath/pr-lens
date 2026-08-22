@@ -1,7 +1,7 @@
-import { runScan } from "@pr-lens/core";
+import { repoKey, runScan } from "@pr-lens/core";
 import type { Command } from "commander";
-import { fail } from "../fail.js";
-import { resolveRepo } from "../repo.js";
+import { fail } from "../fail";
+import { resolveRepo } from "../repo";
 
 export function registerScan(program: Command): void {
   program
@@ -13,7 +13,7 @@ export function registerScan(program: Command): void {
         const dir = process.cwd();
         const repo = await resolveRepo(options.repo === undefined ? { dir } : { flag: options.repo, dir });
         const report = await runScan({ repo, dir });
-        console.log(`Scanned ${String(report.prs.length)} open PRs in ${repo} → .pr-lens/report.json`);
+        console.log(`Scanned ${String(report.prs.length)} open PRs in ${repo} → .pr-lens/reports/${repoKey(repo)}.json`);
       } catch (err) {
         fail(err);
       }

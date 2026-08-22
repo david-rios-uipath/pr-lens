@@ -1,11 +1,11 @@
-import { readConfig } from "./config.js";
-import { CROSS_CUTTING, deriveComponents } from "./components.js";
-import type { FetchLike } from "./github.js";
-import { fetchOpenPrs, resolveToken } from "./github.js";
-import type { Report, ReportPr } from "./report.js";
-import { writeReport } from "./report.js";
-import { evaluateDimension, makeReviewabilityFactors } from "./scoring.js";
-import type { PrData } from "./types.js";
+import { readConfig } from "./config";
+import { CROSS_CUTTING, deriveComponents } from "./components";
+import type { FetchLike } from "./github";
+import { fetchOpenPrs, resolveToken } from "./github";
+import type { Report, ReportPr } from "./report";
+import { writeReport } from "./report";
+import { evaluateDimension, REVIEWABILITY_FACTORS } from "./scoring";
+import type { PrData } from "./types";
 
 /** Pure: derives components, scores each PR, and assembles a sorted report. */
 export function buildReport(
@@ -15,7 +15,7 @@ export function buildReport(
   weights?: Record<string, number>,
 ): Report {
   const { components, perPr } = deriveComponents(prs.map((p) => ({ number: p.number, files: p.files })));
-  const factors = makeReviewabilityFactors(now).map((f) => ({
+  const factors = REVIEWABILITY_FACTORS.map((f) => ({
     ...f,
     weight: weights?.[f.name] ?? f.weight,
   }));

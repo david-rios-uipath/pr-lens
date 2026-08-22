@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { componentKey, CROSS_CUTTING, deriveComponents } from "../src/components.js";
+import { componentKey, CROSS_CUTTING, deriveComponents } from "../src/components";
 
 const f = (path: string, lines = 10) => ({ path, additions: lines, deletions: 0 });
 

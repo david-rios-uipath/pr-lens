@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import { registerBrief } from "./commands/brief.js";
-import { registerComponents } from "./commands/components.js";
-import { registerLs } from "./commands/ls.js";
-import { registerScan } from "./commands/scan.js";
-import { registerWeb } from "./commands/web.js";
-import { fail } from "./fail.js";
+import { registerBrief } from "./commands/brief";
+import { registerComponents } from "./commands/components";
+import { registerLs } from "./commands/ls";
+import { registerScan } from "./commands/scan";
+import { registerWeb } from "./commands/web";
+import { fail } from "./fail";
 
 const program = new Command();
 program.name("pr-lens").description("Prioritize open pull requests for review");

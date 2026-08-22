@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { configSchema, readConfig } from "../src/config.js";
+import { configSchema, readConfig } from "../src/config";
 
 describe("configSchema", () => {
   it("accepts an empty object", () => {

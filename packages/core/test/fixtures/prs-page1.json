@@ -14,17 +14,47 @@
             "deletions": 1,
             "changedFiles": 1,
             "mergeable": "MERGEABLE",
-            "author": { "login": "alice" },
-            "labels": { "nodes": [{ "name": "docs" }] },
+            "author": {
+              "login": "alice"
+            },
+            "labels": {
+              "nodes": [
+                {
+                  "name": "docs"
+                }
+              ]
+            },
             "reviewDecision": "APPROVED",
-            "latestOpinionatedReviews": { "totalCount": 1 },
             "commits": {
               "nodes": [
-                { "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }
+                {
+                  "commit": {
+                    "statusCheckRollup": {
+                      "state": "SUCCESS"
+                    },
+                    "pushedDate": "2026-08-01T09:00:00Z",
+                    "committedDate": "2026-08-01T08:00:00Z"
+                  }
+                }
               ]
             },
             "files": {
-              "nodes": [{ "path": "README.md", "additions": 2, "deletions": 1 }]
+              "nodes": [
+                {
+                  "path": "README.md",
+                  "additions": 2,
+                  "deletions": 1
+                }
+              ]
+            },
+            "baseRefName": "main",
+            "latestReviews": {
+              "nodes": [
+                {
+                  "state": "APPROVED",
+                  "submittedAt": "2026-08-02T09:00:00Z"
+                }
+              ]
             }
           },
           {
@@ -39,23 +69,47 @@
             "changedFiles": 42,
             "mergeable": "CONFLICTING",
             "author": null,
-            "labels": { "nodes": [] },
+            "labels": {
+              "nodes": []
+            },
             "reviewDecision": null,
-            "latestOpinionatedReviews": { "totalCount": 0 },
             "commits": {
               "nodes": [
-                { "commit": { "statusCheckRollup": { "state": "FAILURE" } } }
+                {
+                  "commit": {
+                    "statusCheckRollup": {
+                      "state": "FAILURE"
+                    },
+                    "pushedDate": "2026-08-01T09:00:00Z",
+                    "committedDate": "2026-08-01T08:00:00Z"
+                  }
+                }
               ]
             },
             "files": {
               "nodes": [
-                { "path": "src/engine.ts", "additions": 800, "deletions": 350 },
-                { "path": "src/engine.test.ts", "additions": 100, "deletions": 50 }
+                {
+                  "path": "src/engine.ts",
+                  "additions": 800,
+                  "deletions": 350
+                },
+                {
+                  "path": "src/engine.test.ts",
+                  "additions": 100,
+                  "deletions": 50
+                }
               ]
+            },
+            "baseRefName": "main",
+            "latestReviews": {
+              "nodes": []
             }
           }
         ],
-        "pageInfo": { "hasNextPage": true, "endCursor": "C1" }
+        "pageInfo": {
+          "hasNextPage": true,
+          "endCursor": "C1"
+        }
       }
     }
   }

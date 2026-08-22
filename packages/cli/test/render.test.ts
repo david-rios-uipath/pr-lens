@@ -1,6 +1,6 @@
 import type { Report, ReportPr } from "@pr-lens/core";
 import { describe, expect, it } from "vitest";
-import { renderComponents, renderTable, sanitize, selectPrs, staleMs, timeAgo } from "../src/render.js";
+import { renderComponents, renderTable, sanitize, selectPrs, staleMs, timeAgo } from "../src/render";
 
 function makePr(overrides: Partial<ReportPr> & { number: number }): ReportPr {
   return {
