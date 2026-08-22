@@ -4,6 +4,7 @@ import { registerBrief } from "./commands/brief.js";
 import { registerComponents } from "./commands/components.js";
 import { registerLs } from "./commands/ls.js";
 import { registerScan } from "./commands/scan.js";
+import { registerWeb } from "./commands/web.js";
 import { fail } from "./fail.js";
 
 const program = new Command();
@@ -13,6 +14,7 @@ registerScan(program);
 registerLs(program);
 registerComponents(program);
 registerBrief(program);
+registerWeb(program);
 
 try {
   await program.parseAsync(process.argv);
