@@ -226,7 +226,7 @@ export async function fetchBrief(
 // markdown (PR bodies/diffs/comments) can't inject terminal escape sequences
 // while remaining readable multi-line markdown.
 // eslint-disable-next-line no-control-regex -- intentional: this is the control-char filter.
-const CONTROL_CHARS_KEEP_NEWLINE_TAB = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g;
+const CONTROL_CHARS_KEEP_NEWLINE_TAB = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g;
 
 export function sanitizeMultiline(value: string): string {
   return value.replace(CONTROL_CHARS_KEEP_NEWLINE_TAB, "");

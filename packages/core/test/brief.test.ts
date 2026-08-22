@@ -6,8 +6,8 @@ import type { DimensionScore } from "../src/report.js";
 
 const ESC = String.fromCharCode(27);
 const BELL = String.fromCharCode(7);
-// eslint-disable-next-line no-control-regex -- test-only assertion that control chars are gone
-const CONTROL_CHAR_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/;
+const CR = String.fromCharCode(13);
+const DEL = String.fromCharCode(127);
 
 const briefFixture = async () =>
   new Response(await readFile(new URL("./fixtures/brief-pr.json", import.meta.url), "utf8"), { status: 200 });
@@ -135,20 +135,27 @@ describe("renderBriefMarkdown", () => {
 
 describe("sanitizeMultiline", () => {
   it("strips C0/C1 control chars but keeps newlines and tabs", () => {
-    const input = `line one\n\ttabbed${ESC}[31mred${BELL}bell`;
+    const input = `line one\n\ttabbed${ESC}[31mred${BELL}bell${CR}cr${DEL}del`;
     const result = sanitizeMultiline(input);
-    expect(result).toBe("line one\n\ttabbed[31mredbell");
-    expect(result).toContain("\n");
-    expect(result).toContain("\t");
+    expect(result).toBe("line one\n\ttabbed[31mredbellcrdel");
+  });
+
+  it("strips a bare carriage return (line-overwrite spoofing primitive)", () => {
+    const result = sanitizeMultiline("a\rb\nc\td");
+    expect(result).toBe("ab\nc\td");
   });
 
   it("strips terminal escape sequences from renderBriefMarkdown output before printing", async () => {
     const brief = await fetchBrief("UiPath/flow-workbench", 42, "tok", routeFetch());
-    const malicious = { ...brief, body: `hello${ESC}[31mred\ntext` };
+    const malicious = { ...brief, body: `hello${ESC}[31mred${CR}${BELL}\ntext` };
     const md = renderBriefMarkdown(malicious);
     const sanitized = sanitizeMultiline(md);
-    expect(CONTROL_CHAR_RE.test(sanitized)).toBe(false);
+    expect(sanitized.includes(ESC)).toBe(false);
+    expect(sanitized.includes(CR)).toBe(false);
+    expect(sanitized.includes(BELL)).toBe(false);
     expect(sanitized).toContain("\n");
     expect(sanitized).toContain("hello");
+    expect(sanitized).toContain("[31mred");
+    expect(sanitized).toContain("text");
   });
 });
