@@ -6,3 +6,5 @@ export * from "./report.js";
 export * from "./scoring.js";
 export * from "./components.js";
 export * from "./github.js";
+export * from "./config.js";
+export * from "./scan.js";
