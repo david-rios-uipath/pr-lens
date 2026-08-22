@@ -56,11 +56,28 @@ Modules:
 
 - `github.ts` — GraphQL client. Token resolution: `GITHUB_TOKEN` env, else
   `gh auth token`. Never persisted.
-- `scoring.ts` — pure function `(pr) → { score, breakdown }`, 0–100.
+- `scoring.ts` — dimension registry + pure engine. Each **scoring
+  dimension** is a named set of weighted factors producing
+  `{ score: 0–100, breakdown }`. The engine runs once per dimension per PR.
 - `components.ts` — component map derivation from file paths.
 - `report.ts` — report schema (zod) + read/write helpers.
 
-### Scoring factors
+### Scoring dimensions
+
+Scores are multi-dimensional. Two dimensions ship initially; new ones just
+register in the dimension list — no schema change.
+
+- **`reviewability`** (default sort) — how quick/easy the PR is to review.
+  Factors below.
+- **`componentAffinity`** — how concentrated the PR is in a given component:
+  the share of the PR's changed lines inside that component's paths. It is
+  context-dependent (affinity *to the component being filtered by*), so the
+  report stores a per-PR `componentShares` map (`component → 0–1`) and the
+  dimension is evaluated against the active component filter. These shares
+  also define the primary/secondary component mapping quantitatively
+  (primary = largest share).
+
+### Reviewability factors
 
 Each factor contributes a weighted amount; the breakdown names every factor
 so both UIs can explain the ranking.
@@ -74,7 +91,7 @@ so both UIs can explain the ranking.
 | `age` | Recently updated beats stale; very fresh (<1h) slightly dampened |
 | `changeNature` | Docs-only / test-only / config-only / pure-rename PRs get a big boost |
 | `mergeability` | Conflicted PRs penalized |
-| `codeComplexity` | **Placeholder — not implemented.** Registered in the factor registry, weights constant, and report schema, but returns a neutral contribution with weight 0. Algorithm TBD (user researching separately). Implementing it later is a one-function swap + weight change; no schema migration. |
+| `codeComplexity` | **Placeholder — not implemented.** Registered in the factor registry, weights constant, and report schema, but returns a neutral contribution with weight 0. Algorithm TBD (user researching separately). Implementing it later is a one-function swap + weight change; no schema migration. Could alternatively graduate into its own dimension. |
 
 Weights live in one exported constant, overridable via optional
 `.pr-lens/config.json`. No tuning machinery beyond that.
@@ -106,8 +123,13 @@ No configuration needed; adapts to any repo layout.
       "additions": 120, "deletions": 45, "changedFiles": 4,
       "ci": "SUCCESS", "reviewState": "…", "labels": ["…"],
       "componentPrimary": "…", "componentsSecondary": ["…"],
-      "score": 87,
-      "breakdown": [{ "factor": "diffSize", "weight": 0.2, "value": 0.9, "reason": "…" }]
+      "componentShares": { "flow-editor": 0.8, "shared-ui": 0.2 },
+      "scores": {
+        "reviewability": {
+          "score": 87,
+          "breakdown": [{ "factor": "diffSize", "weight": 0.2, "value": 0.9, "reason": "…" }]
+        }
+      }
     }
   ]
 }
@@ -120,9 +142,11 @@ Validated with zod on read and write.
 - `pr-lens scan [--repo owner/name]` — fetch, score, write
   `.pr-lens/report.json`. Repo resolution: flag → `.pr-lens/config.json` →
   cwd git remote.
-- `pr-lens ls [--component <name>] [--limit N] [--json] [--stale-after 15m]`
-  — ranked table: rank, score, PR #, title, component, size, CI, top scoring
-  reasons. `--json` for agents. `--stale-after` auto-rescans if the report is
+- `pr-lens ls [--component <name>] [--sort reviewability|affinity] [--limit N]
+  [--json] [--stale-after 15m]` — ranked table: rank, score, PR #, title,
+  component, size, CI, top scoring reasons. `--sort affinity` requires
+  `--component` (affinity is relative to a component). `--json` emits all
+  score dimensions for agents. `--stale-after` auto-rescans if the report is
   older.
 - `pr-lens components` — derived components with PR counts (valid filter
   values for humans and agents).
@@ -150,8 +174,9 @@ tried.
   in GitHub's list style; CI status icon; review state; size (`+120 −45` and
   S/M/L/XL chip); component labels; top 2–3 scoring reasons as subtle text.
   Clicking the row opens the PR on github.com in a new tab.
-- **Controls:** component filter, free-text title filter, sort (score
-  default; newest / smallest), per-row expandable score-breakdown popover
+- **Controls:** component filter, free-text title filter, sort
+  (reviewability default; newest / smallest; **component affinity** when a
+  component filter is active), per-row expandable score-breakdown popover
   showing every factor including the inert `codeComplexity` placeholder.
 - **Data:** fetches `/api/report`; Refresh calls `POST /api/scan` then
   reloads. No token, no GitHub calls, no browser-persisted state.
@@ -178,6 +203,11 @@ Vitest across the workspace.
 
 - `.pr-lens/` gitignored (reports are local artifacts).
 - Node 20+, strict TypeScript, shared tsconfig/eslint at the root.
+- **Linting is strict and type-checked:** typescript-eslint with
+  `strictTypeChecked` config; unnecessary casts are errors
+  (`@typescript-eslint/no-unnecessary-type-assertion: error`, plus
+  `no-unsafe-*` and `no-explicit-any` as errors). Lint must pass in CI/tests
+  with zero warnings (`--max-warnings 0`).
 - pnpm for all package management.
 
 ## Out of scope (explicitly)
