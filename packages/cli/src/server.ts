@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { extname, resolve, sep } from "node:path";
@@ -81,8 +81,27 @@ async function serveStatic(webDist: string | null, pathname: string, req: Incomi
     return;
   }
 
+  // The lexical prefix check above doesn't catch a symlink inside webDist
+  // that points outside it — resolve real paths and re-check before reading.
+  let realTarget: string;
   try {
-    const data = await readFile(resolvedTarget);
+    realTarget = await realpath(resolvedTarget);
+  } catch {
+    await serveIndexFallback(resolvedDist, req, res);
+    return;
+  }
+
+  const realDist = await realpath(resolvedDist).catch(() => resolvedDist);
+  const isReallyInsideDist = realTarget === realDist || realTarget.startsWith(realDist + sep);
+  if (!isReallyInsideDist) {
+    // Symlink escape — never fall back to the SPA index for these either.
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    res.end("Not Found");
+    return;
+  }
+
+  try {
+    const data = await readFile(realTarget);
     res.writeHead(200, { "Content-Type": contentTypeFor(resolvedTarget) });
     res.end(data);
   } catch {
@@ -124,6 +143,10 @@ export function createServer(deps: ServerDeps): Server {
       const pathname = (req.url ?? "/").split("?")[0] ?? "/";
 
       if (method !== "GET" && method !== "POST") {
+        if (pathname.startsWith("/api/")) {
+          sendJson(res, 405, { error: "Method Not Allowed" });
+          return;
+        }
         res.writeHead(405, { "Content-Type": "text/plain" });
         res.end("Method Not Allowed");
         return;

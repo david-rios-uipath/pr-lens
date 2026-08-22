@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, symlink, writeFile } from "node:fs/promises";
 import type { Server } from "node:http";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
@@ -64,7 +64,7 @@ async function listen(server: Server): Promise<string> {
  * before it's ever sent over the wire, so a genuine traversal attempt has to
  * be written directly to the socket to bypass that normalization.
  */
-function rawGet(base: string, rawPath: string): Promise<number> {
+function rawRequest(base: string, rawPath: string): Promise<{ status: number; body: string }> {
   const url = new URL(base);
   return new Promise((resolvePromise, reject) => {
     const socket = createConnection({ host: url.hostname, port: Number(url.port) }, () => {
@@ -75,12 +75,18 @@ function rawGet(base: string, rawPath: string): Promise<number> {
       data += chunk.toString();
     });
     socket.on("end", () => {
-      const statusLine = data.split("\r\n")[0] ?? "";
+      const [statusLine = "", ...rest] = data.split("\r\n");
       const match = /^HTTP\/1\.1 (\d+)/.exec(statusLine);
-      resolvePromise(match?.[1] !== undefined ? Number(match[1]) : 0);
+      const body = rest.join("\r\n").split("\r\n\r\n").slice(1).join("\r\n\r\n");
+      resolvePromise({ status: match?.[1] !== undefined ? Number(match[1]) : 0, body });
     });
     socket.on("error", reject);
   });
+}
+
+async function rawGet(base: string, rawPath: string): Promise<number> {
+  const { status } = await rawRequest(base, rawPath);
+  return status;
 }
 
 function close(server: Server): Promise<void> {
@@ -242,11 +248,42 @@ describe("createServer", () => {
     expect(status).toBe(404);
   });
 
-  it("denies non-GET/POST methods with 405", async () => {
+  it("denies non-GET/POST methods on /api/* with a JSON 405 body", async () => {
     server = createServer(baseDeps());
     const base = await listen(server);
 
     const res = await fetch(`${base}/api/report`, { method: "DELETE" });
     expect(res.status).toBe(405);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    const body: unknown = await res.json();
+    expect(body).toEqual({ error: "Method Not Allowed" });
+  });
+
+  it("denies the wrong verb on a known /api/ route (GET /api/scan) with a JSON 405 body", async () => {
+    server = createServer(baseDeps());
+    const base = await listen(server);
+
+    const res = await fetch(`${base}/api/scan`, { method: "GET" });
+    expect(res.status).toBe(405);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    const body: unknown = await res.json();
+    expect(body).toEqual({ error: "Method Not Allowed" });
+  });
+
+  it("blocks a symlink inside webDist that escapes to a file outside it", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pr-lens-web-"));
+    await writeFile(join(dir, "index.html"), "<html></html>");
+
+    const outsideDir = await mkdtemp(join(tmpdir(), "pr-lens-outside-"));
+    const secretPath = join(outsideDir, "secret.txt");
+    await writeFile(secretPath, "TOP-SECRET-CONTENT");
+    await symlink(secretPath, join(dir, "escape.txt"));
+
+    server = createServer(baseDeps({ webDist: dir }));
+    const base = await listen(server);
+
+    const { status, body } = await rawRequest(base, "/escape.txt");
+    expect(status).toBe(404);
+    expect(body).not.toContain("TOP-SECRET-CONTENT");
   });
 });
