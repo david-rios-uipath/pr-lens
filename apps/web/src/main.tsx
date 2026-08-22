@@ -1,4 +1,3 @@
-import { BaseStyles, ThemeProvider } from "@primer/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.js";
@@ -10,10 +9,6 @@ if (container === null) {
 
 createRoot(container).render(
   <StrictMode>
-    <ThemeProvider colorMode="dark">
-      <BaseStyles>
-        <App />
-      </BaseStyles>
-    </ThemeProvider>
+    <App />
   </StrictMode>,
 );

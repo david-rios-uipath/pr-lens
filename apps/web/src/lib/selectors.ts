@@ -83,6 +83,19 @@ export function sizeBucket(pr: ReportPr): "S" | "M" | "L" | "XL" {
   return "XL";
 }
 
+export interface ReviewLabelDescriptor {
+  text: string;
+  variant: "success" | "danger";
+}
+
+/** Draft/approved/changes-requested are worth flagging; review-required/none add noise. */
+export function reviewLabel(pr: ReportPr): ReviewLabelDescriptor | null {
+  if (pr.isDraft) return { text: "Draft", variant: "danger" };
+  if (pr.reviewState === "APPROVED") return { text: "Approved", variant: "success" };
+  if (pr.reviewState === "CHANGES_REQUESTED") return { text: "Changes requested", variant: "danger" };
+  return null;
+}
+
 export function agoLabel(iso: string, now: number): string {
   const diffMs = now - new Date(iso).getTime();
   const minutes = Math.floor(diffMs / 60_000);

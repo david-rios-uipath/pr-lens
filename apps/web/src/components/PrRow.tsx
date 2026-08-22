@@ -2,7 +2,7 @@ import { CheckIcon, DotFillIcon, XIcon } from "@primer/octicons-react";
 import { Box, Label, Link, Text } from "@primer/react";
 import type { ReportPr } from "@pr-lens/core";
 import type { JSX } from "react";
-import { agoLabel, scoreOf, sizeBucket, topReasons } from "../lib/selectors.js";
+import { agoLabel, reviewLabel, scoreOf, sizeBucket, topReasons } from "../lib/selectors.js";
 import { ScoreBreakdown } from "./ScoreBreakdown.js";
 
 function scoreVariant(score: number): "success" | "attention" | "danger" {
@@ -19,6 +19,7 @@ function CiIcon({ ci }: { ci: ReportPr["ci"] }): JSX.Element {
 
 export function PrRow({ pr, affinity }: { pr: ReportPr; affinity?: number }): JSX.Element {
   const score = scoreOf(pr);
+  const review = reviewLabel(pr);
 
   return (
     <Box
@@ -62,6 +63,7 @@ export function PrRow({ pr, affinity }: { pr: ReportPr; affinity?: number }): JS
         <Text sx={{ color: "danger.fg" }}>-{pr.deletions}</Text>
       </Text>
       <Label variant="secondary">{sizeBucket(pr)}</Label>
+      {review !== null && <Label variant={review.variant}>{review.text}</Label>}
 
       <Box sx={{ display: "flex", gap: 1 }}>
         <Label>{pr.componentPrimary}</Label>

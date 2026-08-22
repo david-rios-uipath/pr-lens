@@ -1,6 +1,6 @@
 import type { Report, ReportPr } from "@pr-lens/core";
 import { describe, expect, it } from "vitest";
-import { agoLabel, normalizeView, scoreOf, selectView, sizeBucket, topReasons } from "../src/lib/selectors.js";
+import { agoLabel, normalizeView, reviewLabel, scoreOf, selectView, sizeBucket, topReasons } from "../src/lib/selectors.js";
 
 function makePr(overrides: Partial<ReportPr> & { number: number }): ReportPr {
   return {
@@ -181,6 +181,28 @@ describe("normalizeView", () => {
   it("leaves non-affinity sorts untouched regardless of component", () => {
     const opts = { component: null, query: "x", sort: "newest" } as const;
     expect(normalizeView(opts)).toEqual(opts);
+  });
+});
+
+describe("reviewLabel", () => {
+  it("shows Draft when isDraft, regardless of reviewState", () => {
+    const pr = makePr({ number: 1, isDraft: true, reviewState: "APPROVED" });
+    expect(reviewLabel(pr)).toEqual({ text: "Draft", variant: "danger" });
+  });
+
+  it("shows Approved in success variant", () => {
+    const pr = makePr({ number: 1, isDraft: false, reviewState: "APPROVED" });
+    expect(reviewLabel(pr)).toEqual({ text: "Approved", variant: "success" });
+  });
+
+  it("shows Changes requested in danger variant", () => {
+    const pr = makePr({ number: 1, isDraft: false, reviewState: "CHANGES_REQUESTED" });
+    expect(reviewLabel(pr)).toEqual({ text: "Changes requested", variant: "danger" });
+  });
+
+  it.each(["REVIEW_REQUIRED", "NONE"] as const)("returns null for %s to avoid noise", (reviewState) => {
+    const pr = makePr({ number: 1, isDraft: false, reviewState });
+    expect(reviewLabel(pr)).toBeNull();
   });
 });
 
