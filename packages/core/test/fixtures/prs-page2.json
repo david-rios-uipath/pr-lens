@@ -1,0 +1,35 @@
+{
+  "data": {
+    "repository": {
+      "pullRequests": {
+        "nodes": [
+          {
+            "number": 103,
+            "title": "Add pending feature",
+            "url": "https://github.com/UiPath/flow-workbench/pull/103",
+            "isDraft": false,
+            "createdAt": "2026-08-05T10:00:00Z",
+            "updatedAt": "2026-08-06T10:00:00Z",
+            "additions": 30,
+            "deletions": 5,
+            "changedFiles": 3,
+            "mergeable": "UNKNOWN",
+            "author": { "login": "bob" },
+            "labels": { "nodes": [{ "name": "feature" }] },
+            "reviewDecision": null,
+            "latestOpinionatedReviews": { "totalCount": 0 },
+            "commits": {
+              "nodes": [
+                { "commit": { "statusCheckRollup": { "state": "PENDING" } } }
+              ]
+            },
+            "files": {
+              "nodes": [{ "path": "src/feature.ts", "additions": 30, "deletions": 5 }]
+            }
+          }
+        ],
+        "pageInfo": { "hasNextPage": false, "endCursor": null }
+      }
+    }
+  }
+}
