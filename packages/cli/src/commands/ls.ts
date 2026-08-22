@@ -2,7 +2,7 @@ import { affinityScore, readReport, runScan } from "@pr-lens/core";
 import type { Command } from "commander";
 import { fail } from "../fail.js";
 import type { LsOptions } from "../render.js";
-import { renderTable, selectPrs, staleMs, timeAgo } from "../render.js";
+import { renderTable, sanitize, selectPrs, staleMs, timeAgo } from "../render.js";
 import { resolveRepo } from "../repo.js";
 
 interface LsCliOptions {
@@ -60,7 +60,7 @@ export function registerLs(program: Command): void {
           return;
         }
 
-        console.log(`${report.repo} · generated ${timeAgo(report.generatedAt, Date.now())}`);
+        console.log(`${sanitize(report.repo)} · generated ${timeAgo(report.generatedAt, Date.now())}`);
         console.log(renderTable(selected, opts));
       } catch (err) {
         fail(err);

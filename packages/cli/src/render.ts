@@ -27,6 +27,15 @@ export function selectPrs(report: Report, opts: LsOptions): ReportPr[] {
   return sorted.slice(0, opts.limit);
 }
 
+// Strips C0/C1 control chars (incl. ESC) so untrusted strings (PR titles, authors,
+// component names, breakdown reasons) can't inject terminal escape sequences.
+// eslint-disable-next-line no-control-regex -- intentional: this is the control-char filter.
+const CONTROL_CHARS = /[\u0000-\u001F\u007F-\u009F]/g;
+
+export function sanitize(value: string): string {
+  return value.replace(CONTROL_CHARS, "");
+}
+
 function pad(value: string, width: number): string {
   return value.length >= width ? value.slice(0, width) : value.padEnd(width);
 }
@@ -41,7 +50,7 @@ function topReasons(pr: ReportPr): string {
     .filter((entry) => entry.weight > 0)
     .sort((a, b) => b.weight * b.value - a.weight * a.value)
     .slice(0, 2)
-    .map((entry) => entry.reason)
+    .map((entry) => sanitize(entry.reason))
     .join(" · ");
 }
 
@@ -69,8 +78,8 @@ export function renderTable(prs: ReportPr[], opts: LsOptions): string {
         ? [pad(String(affinityScore(pr.componentShares, component)), 5)]
         : []),
       pad(`#${String(pr.number)}`, 7),
-      pad(truncateTitle(pr.title, 50), 50),
-      pad(pr.componentPrimary, 14),
+      pad(truncateTitle(sanitize(pr.title), 50), 50),
+      pad(sanitize(pr.componentPrimary), 14),
       pad(`+${String(pr.additions)}/-${String(pr.deletions)}`, 14),
       pad(pr.ci, 8),
       topReasons(pr),
@@ -82,7 +91,7 @@ export function renderTable(prs: ReportPr[], opts: LsOptions): string {
 }
 
 export function renderComponents(report: Report): string {
-  return report.components.map((c) => `${c.name}  ${String(c.prCount)}`).join("\n");
+  return report.components.map((c) => `${sanitize(c.name)}  ${String(c.prCount)}`).join("\n");
 }
 
 export function staleMs(spec: string): number {

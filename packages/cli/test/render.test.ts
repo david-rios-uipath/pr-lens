@@ -1,6 +1,6 @@
 import type { Report, ReportPr } from "@pr-lens/core";
 import { describe, expect, it } from "vitest";
-import { renderComponents, renderTable, selectPrs, staleMs, timeAgo } from "../src/render.js";
+import { renderComponents, renderTable, sanitize, selectPrs, staleMs, timeAgo } from "../src/render.js";
 
 function makePr(overrides: Partial<ReportPr> & { number: number }): ReportPr {
   return {
@@ -197,5 +197,52 @@ describe("renderComponents", () => {
     expect(output).toContain("2");
     expect(output).toContain("docs");
     expect(output).toContain("1");
+  });
+});
+
+describe("sanitize", () => {
+  const cases: { name: string; input: string; expected: string }[] = [
+    { name: "ESC + CSI clear-screen", input: "clear\x1b[2Jscreen", expected: "clear[2Jscreen" },
+    { name: "BEL", input: "ping\x07pong", expected: "pingpong" },
+    { name: "OSC title-set sequence", input: "\x1b]0;pwned\x07done", expected: "]0;pwneddone" },
+    { name: "lone ESC", input: "esc\x1bhere", expected: "eschere" },
+    { name: "C1 control char", input: "c1\u0085here", expected: "c1here" },
+    { name: "plain text is untouched", input: "Add feature A", expected: "Add feature A" },
+  ];
+
+  it.each(cases)("strips $name", ({ input, expected }) => {
+    expect(sanitize(input)).toBe(expected);
+  });
+});
+
+describe("terminal-escape injection", () => {
+  const maliciousTitle = "Evil PR\x1b[2Jcleared\x07beeped";
+
+  it("renderTable strips control bytes from an untrusted title", () => {
+    const evilPr = makePr({ number: 99, title: maliciousTitle });
+    const table = renderTable([evilPr], { sort: "reviewability", limit: 20 });
+    expect(table).not.toContain("\x1b");
+    expect(table).not.toContain("\x07");
+    expect(table).toContain("Evil PR");
+    expect(table).toContain("cleared");
+    expect(table).toContain("beeped");
+  });
+
+  it("renderComponents strips control bytes from an untrusted component name", () => {
+    const evilReport: Report = {
+      ...report,
+      components: [{ name: "co\x1bre", prCount: 1 }],
+    };
+    const output = renderComponents(evilReport);
+    expect(output).not.toContain("\x1b");
+    expect(output).toContain("core");
+  });
+
+  it("selectPrs (the --json data path) leaves the raw title untouched", () => {
+    const evilPr = makePr({ number: 99, title: maliciousTitle });
+    const evilReport: Report = { ...report, prs: [evilPr] };
+    const selected = selectPrs(evilReport, { sort: "reviewability", limit: 20 });
+    expect(selected[0]?.title).toBe(maliciousTitle);
+    expect(JSON.stringify(selected[0])).toContain(JSON.stringify(maliciousTitle).slice(1, -1));
   });
 });
