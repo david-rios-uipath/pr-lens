@@ -1,19 +1,41 @@
 import type { Report, ReportPr } from "@pr-lens/core";
 
-export type SortKey = "reviewability" | "affinity" | "newest" | "smallest";
+export type SortKey = "reviewability" | "affinity" | "updated" | "size";
+
+/** Applies to the sort key's metric: "desc" = highest score / most recent / largest first. */
+export type SortDir = "desc" | "asc";
 
 export interface ViewOptions {
-  component: string | null;
+  components: string[];
+  /** Selected author logins; empty means "all authors". */
+  authors: string[];
   query: string;
   sort: SortKey;
+  sortDir: SortDir;
+  hideApproved: boolean;
+  hideDrafts: boolean;
 }
+
+/**
+ * Approved PRs and drafts are hidden by default — the list is for finding work
+ * that still needs review, and a draft isn't asking for any.
+ */
+export const DEFAULT_VIEW: ViewOptions = {
+  components: [],
+  authors: [],
+  query: "",
+  sort: "reviewability",
+  sortDir: "desc",
+  hideApproved: true,
+  hideDrafts: true,
+};
 
 export function scoreOf(pr: ReportPr): number {
   return pr.scores.reviewability?.score ?? 0;
 }
 
-function affinityOf(pr: ReportPr, component: string): number {
-  return pr.componentShares[component] ?? 0;
+export function affinityOf(pr: ReportPr, components: string[]): number {
+  return components.reduce((max, c) => Math.max(max, pr.componentShares[c] ?? 0), 0);
 }
 
 function totalLines(pr: ReportPr): number {
@@ -24,43 +46,100 @@ function matchesComponent(pr: ReportPr, component: string): boolean {
   return pr.componentPrimary === component || pr.componentsSecondary.includes(component);
 }
 
-export function selectView(report: Report, opts: ViewOptions): ReportPr[] {
-  const { component, query, sort } = opts;
-  const q = query.trim().toLowerCase();
+function filterByComponents(prs: ReportPr[], components: string[]): ReportPr[] {
+  if (components.length === 0) return prs;
+  return prs.filter((pr) => components.some((c) => matchesComponent(pr, c)));
+}
 
-  let prs = report.prs;
-  if (component !== null) {
-    prs = prs.filter((pr) => matchesComponent(pr, component));
-  }
+function filterByAuthors(prs: ReportPr[], authors: string[]): ReportPr[] {
+  if (authors.length === 0) return prs;
+  return prs.filter((pr) => authors.includes(pr.author));
+}
+
+/** Filters that apply regardless of which facet's counts are being computed. */
+function filterByQueryAndState(prs: ReportPr[], opts: ViewOptions): ReportPr[] {
+  const q = opts.query.trim().toLowerCase();
   if (q.length > 0) {
     prs = prs.filter((pr) => pr.title.toLowerCase().includes(q));
   }
-
-  const sorted = [...prs];
-  switch (sort) {
-    case "affinity":
-      if (component === null) {
-        sorted.sort((a, b) => scoreOf(b) - scoreOf(a));
-      } else {
-        sorted.sort((a, b) => affinityOf(b, component) - affinityOf(a, component));
-      }
-      break;
-    case "newest":
-      sorted.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      break;
-    case "smallest":
-      sorted.sort((a, b) => totalLines(a) - totalLines(b));
-      break;
-    case "reviewability":
-      sorted.sort((a, b) => scoreOf(b) - scoreOf(a));
-      break;
+  if (opts.hideApproved) {
+    prs = prs.filter((pr) => pr.reviewState !== "APPROVED");
   }
-  return sorted;
+  if (opts.hideDrafts) {
+    prs = prs.filter((pr) => !pr.isDraft);
+  }
+  return prs;
 }
 
-/** Affinity sort requires a selected component; otherwise fall back to reviewability. */
+/** The value the sort key ranks on. Higher always means "first" under sortDir "desc". */
+function sortMetric(pr: ReportPr, sort: SortKey, components: string[]): number {
+  switch (sort) {
+    // Affinity is meaningless without a component selection — fall back to the score.
+    case "affinity":
+      return components.length === 0 ? scoreOf(pr) : affinityOf(pr, components);
+    case "updated":
+      return new Date(pr.updatedAt).getTime();
+    case "size":
+      return totalLines(pr);
+    case "reviewability":
+      return scoreOf(pr);
+  }
+}
+
+export function selectView(report: Report, opts: ViewOptions): ReportPr[] {
+  const { components, authors, sort, sortDir } = opts;
+
+  let prs = filterByComponents(report.prs, components);
+  prs = filterByAuthors(prs, authors);
+  prs = filterByQueryAndState(prs, opts);
+
+  const sign = sortDir === "asc" ? -1 : 1;
+  return [...prs].sort(
+    (a, b) => sign * (sortMetric(b, sort, components) - sortMetric(a, sort, components)),
+  );
+}
+
+/**
+ * Per-component PR counts under every active filter except the component
+ * selection itself, so picking one component doesn't zero out the rest of
+ * the dropdown.
+ */
+export function componentCounts(report: Report, opts: ViewOptions): { name: string; prCount: number }[] {
+  const prs = filterByQueryAndState(filterByAuthors(report.prs, opts.authors), opts);
+  return report.components
+    .map((c) => ({ name: c.name, prCount: prs.filter((pr) => matchesComponent(pr, c.name)).length }))
+    .sort((a, b) => b.prCount - a.prCount || a.name.localeCompare(b.name));
+}
+
+/**
+ * Per-author PR counts under every active filter except the author
+ * selection itself, so picking one author doesn't zero out the rest of
+ * the dropdown. The login list comes from the unfiltered report — a
+ * zero-count author stays listed rather than vanishing mid-interaction.
+ */
+export function authorCounts(report: Report, opts: ViewOptions): { login: string; prCount: number }[] {
+  const prs = filterByQueryAndState(filterByComponents(report.prs, opts.components), opts);
+  const logins = [...new Set(report.prs.map((pr) => pr.author))];
+  return logins
+    .map((login) => ({ login, prCount: prs.filter((pr) => pr.author === login).length }))
+    .sort((a, b) => b.prCount - a.prCount || a.login.localeCompare(b.login));
+}
+
+/**
+ * PRs still awaiting a first review, across the whole report — deliberately
+ * independent of ViewOptions so narrowing the list can't shrink the total.
+ * Approved and changes-requested have both had a review; a draft isn't
+ * asking for one.
+ */
+export function unreviewedCount(report: Report): number {
+  return report.prs.filter(
+    (pr) => !pr.isDraft && (pr.reviewState === "REVIEW_REQUIRED" || pr.reviewState === "NONE"),
+  ).length;
+}
+
+/** Affinity sort requires at least one selected component; otherwise fall back to reviewability. */
 export function normalizeView(opts: ViewOptions): ViewOptions {
-  if (opts.sort === "affinity" && opts.component === null) {
+  if (opts.sort === "affinity" && opts.components.length === 0) {
     return { ...opts, sort: "reviewability" };
   }
   return opts;

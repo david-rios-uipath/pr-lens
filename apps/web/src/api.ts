@@ -1,4 +1,4 @@
-import type { Report } from "@pr-lens/core";
+import type { Report, ReportSummary } from "@pr-lens/core";
 
 interface ErrorBody {
   error?: string;
@@ -17,18 +17,27 @@ async function parseErrorMessage(res: Response): Promise<string> {
   return `Request failed: ${String(res.status)}`;
 }
 
-async function requestReport(input: RequestInfo, init?: RequestInit): Promise<Report> {
+async function requestJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const res = await fetch(input, init);
   if (!res.ok) {
     throw new Error(await parseErrorMessage(res));
   }
-  return (await res.json()) as Report;
+  return (await res.json()) as T;
 }
 
-export function fetchReport(): Promise<Report> {
-  return requestReport("/api/report");
+function withRepo(path: string, repo?: string): string {
+  return repo === undefined ? path : `${path}?repo=${encodeURIComponent(repo)}`;
 }
 
-export function triggerScan(): Promise<Report> {
-  return requestReport("/api/scan", { method: "POST" });
+export function fetchReport(repo?: string): Promise<Report> {
+  return requestJson<Report>(withRepo("/api/report", repo));
+}
+
+export function triggerScan(repo?: string): Promise<Report> {
+  return requestJson<Report>(withRepo("/api/scan", repo), { method: "POST" });
+}
+
+export async function fetchRepos(): Promise<ReportSummary[]> {
+  const body = await requestJson<{ repos: ReportSummary[] }>("/api/repos");
+  return body.repos;
 }

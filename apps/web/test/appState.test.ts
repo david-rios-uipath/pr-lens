@@ -5,8 +5,8 @@ import {
   afterLoadError,
   afterRefreshError,
   afterReportLoaded,
-} from "../src/lib/appState.js";
-import type { LoadState } from "../src/lib/appState.js";
+} from "../src/lib/appState";
+import type { LoadState } from "../src/lib/appState";
 
 function makeReport(repo: string): Report {
   return { repo, generatedAt: "2026-08-21T12:00:00.000Z", components: [], prs: [] };

@@ -1,6 +1,20 @@
 import type { Report, ReportPr } from "@pr-lens/core";
 import { describe, expect, it } from "vitest";
-import { agoLabel, normalizeView, reviewLabel, scoreOf, selectView, sizeBucket, topReasons } from "../src/lib/selectors.js";
+import {
+  DEFAULT_VIEW,
+  affinityOf,
+  agoLabel,
+  authorCounts,
+  componentCounts,
+  normalizeView,
+  reviewLabel,
+  scoreOf,
+  selectView,
+  sizeBucket,
+  topReasons,
+  unreviewedCount,
+} from "../src/lib/selectors";
+import type { ViewOptions } from "../src/lib/selectors";
 
 function makePr(overrides: Partial<ReportPr> & { number: number }): ReportPr {
   return {
@@ -40,13 +54,69 @@ describe("selectView: component filter", () => {
   const report = makeReport([prA, prB, prC]);
 
   it("matches by primary or secondary component, excludes non-matches", () => {
-    const result = selectView(report, { component: "core", query: "", sort: "reviewability" });
+    const result = selectView(report, { components: ["core"], authors: [], query: "", sort: "reviewability", sortDir: "desc", hideApproved: false, hideDrafts: false });
     expect(result.map((p) => p.number).sort()).toEqual([1, 3]);
   });
 
-  it("returns everything when component is null", () => {
-    const result = selectView(report, { component: null, query: "", sort: "reviewability" });
+  it("returns everything when no components are selected", () => {
+    const result = selectView(report, { components: [], authors: [], query: "", sort: "reviewability", sortDir: "desc", hideApproved: false, hideDrafts: false });
     expect(result.map((p) => p.number).sort()).toEqual([1, 2, 3]);
+  });
+
+  it("ORs multiple selected components", () => {
+    const result = selectView(report, {
+      components: ["auth", "ui"],
+      authors: [],
+      query: "",
+      sort: "reviewability",
+      sortDir: "desc", hideApproved: false, hideDrafts: false,
+    });
+    expect(result.map((p) => p.number).sort()).toEqual([1, 2]);
+  });
+});
+
+describe("selectView: author filter", () => {
+  const prA = makePr({ number: 1, author: "octocat" });
+  const prB = makePr({ number: 2, author: "hubot" });
+  const prC = makePr({ number: 3, author: "monalisa" });
+  const report = makeReport([prA, prB, prC]);
+  const base = { components: [], authors: [], query: "", sort: "reviewability" as const, sortDir: "desc" as const, hideApproved: false, hideDrafts: false };
+
+  it("keeps only PRs by the selected author", () => {
+    const result = selectView(report, { ...base, authors: ["hubot"] });
+    expect(result.map((p) => p.number)).toEqual([2]);
+  });
+
+  it("ORs multiple selected authors", () => {
+    const result = selectView(report, { ...base, authors: ["octocat", "monalisa"] });
+    expect(result.map((p) => p.number).sort()).toEqual([1, 3]);
+  });
+
+  it("returns everything when no authors are selected", () => {
+    const result = selectView(report, { ...base, authors: [] });
+    expect(result.map((p) => p.number).sort()).toEqual([1, 2, 3]);
+  });
+
+  it("returns nothing for an author with no PRs", () => {
+    expect(selectView(report, { ...base, authors: ["ghost"] })).toEqual([]);
+  });
+
+  it("matches logins case-sensitively, as GitHub logins are exact", () => {
+    expect(selectView(report, { ...base, authors: ["Hubot"] })).toEqual([]);
+  });
+
+  it("ANDs with the component filter rather than widening it", () => {
+    const mixed = makeReport([
+      makePr({ number: 1, author: "octocat", componentPrimary: "auth" }),
+      makePr({ number: 2, author: "hubot", componentPrimary: "auth" }),
+      makePr({ number: 3, author: "octocat", componentPrimary: "ui" }),
+    ]);
+    const result = selectView(mixed, { ...base, components: ["auth"], authors: ["octocat"] });
+    expect(result.map((p) => p.number)).toEqual([1]);
+  });
+
+  it("selects no authors by default", () => {
+    expect(DEFAULT_VIEW.authors).toEqual([]);
   });
 });
 
@@ -57,8 +127,76 @@ describe("selectView: query filter", () => {
   const report = makeReport([prA, prB, prC]);
 
   it("matches title case-insensitively", () => {
-    const result = selectView(report, { component: null, query: "CORE cache", sort: "reviewability" });
+    const result = selectView(report, { components: [], authors: [], query: "CORE cache", sort: "reviewability", sortDir: "desc", hideApproved: false, hideDrafts: false });
     expect(result.map((p) => p.number)).toEqual([3]);
+  });
+});
+
+describe("selectView: hideApproved filter", () => {
+  const approved = makePr({ number: 1, reviewState: "APPROVED" });
+  const pending = makePr({ number: 2, reviewState: "REVIEW_REQUIRED" });
+  const changes = makePr({ number: 3, reviewState: "CHANGES_REQUESTED" });
+  const report = makeReport([approved, pending, changes]);
+
+  it("drops approved PRs when hideApproved is set", () => {
+    const result = selectView(report, { ...DEFAULT_VIEW, hideApproved: true });
+    expect(result.map((p) => p.number).sort()).toEqual([2, 3]);
+  });
+
+  it("keeps approved PRs when hideApproved is cleared", () => {
+    const result = selectView(report, { ...DEFAULT_VIEW, hideApproved: false, hideDrafts: false });
+    expect(result.map((p) => p.number).sort()).toEqual([1, 2, 3]);
+  });
+
+  it("hides approved by default", () => {
+    expect(DEFAULT_VIEW.hideApproved).toBe(true);
+    expect(selectView(report, DEFAULT_VIEW).map((p) => p.number).sort()).toEqual([2, 3]);
+  });
+});
+
+describe("selectView: hideDrafts filter", () => {
+  const draft = makePr({ number: 1, isDraft: true });
+  const ready = makePr({ number: 2, isDraft: false });
+  const report = makeReport([draft, ready]);
+
+  it("drops drafts when hideDrafts is set", () => {
+    const result = selectView(report, { ...DEFAULT_VIEW, hideDrafts: true });
+    expect(result.map((p) => p.number)).toEqual([2]);
+  });
+
+  it("keeps drafts when hideDrafts is cleared", () => {
+    const result = selectView(report, { ...DEFAULT_VIEW, hideDrafts: false });
+    expect(result.map((p) => p.number).sort()).toEqual([1, 2]);
+  });
+
+  it("hides drafts by default", () => {
+    expect(DEFAULT_VIEW.hideDrafts).toBe(true);
+    expect(selectView(report, DEFAULT_VIEW).map((p) => p.number)).toEqual([2]);
+  });
+
+  it("drops an approved draft under either toggle alone", () => {
+    const approvedDraft = makeReport([makePr({ number: 1, isDraft: true, reviewState: "APPROVED" })]);
+    expect(selectView(approvedDraft, { ...DEFAULT_VIEW, hideApproved: false, hideDrafts: true })).toEqual([]);
+    expect(selectView(approvedDraft, { ...DEFAULT_VIEW, hideApproved: true, hideDrafts: false })).toEqual([]);
+  });
+
+  it("applies hideDrafts to component counts", () => {
+    const withDraft: Report = {
+      ...makeReport([makePr({ number: 1, isDraft: true, componentPrimary: "auth" })]),
+      components: [{ name: "auth", prCount: 1 }],
+    };
+    expect(componentCounts(withDraft, DEFAULT_VIEW)).toEqual([{ name: "auth", prCount: 0 }]);
+    expect(componentCounts(withDraft, { ...DEFAULT_VIEW, hideDrafts: false })).toEqual([
+      { name: "auth", prCount: 1 },
+    ]);
+  });
+
+  it("applies hideDrafts to author counts", () => {
+    const withDraft = makeReport([makePr({ number: 1, isDraft: true, author: "hubot" })]);
+    expect(authorCounts(withDraft, DEFAULT_VIEW)).toEqual([{ login: "hubot", prCount: 0 }]);
+    expect(authorCounts(withDraft, { ...DEFAULT_VIEW, hideDrafts: false })).toEqual([
+      { login: "hubot", prCount: 1 },
+    ]);
   });
 });
 
@@ -67,8 +205,8 @@ describe("selectView: sort orders", () => {
   // DISTINCT permutation of [1, 2, 3] — a mis-wired sort (e.g. affinity
   // accidentally sorting by newest) would be caught by a mismatched order.
   //   reviewability (score desc):        1, 3, 2
-  //   newest (updatedAt desc):           3, 1, 2
-  //   smallest (additions+deletions asc):2, 1, 3
+  //   updated (updatedAt desc):          3, 1, 2
+  //   size (additions+deletions asc):    2, 1, 3
   //   affinity (componentShares desc):   2, 3, 1
   const prA = makePr({
     number: 1,
@@ -97,28 +235,201 @@ describe("selectView: sort orders", () => {
   const report = makeReport([prA, prB, prC]);
 
   it("reviewability: score desc", () => {
-    const result = selectView(report, { component: null, query: "", sort: "reviewability" });
+    const result = selectView(report, { components: [], authors: [], query: "", sort: "reviewability", sortDir: "desc", hideApproved: false, hideDrafts: false });
     expect(result.map((p) => p.number)).toEqual([1, 3, 2]);
   });
 
   it("affinity: componentShares[component] desc", () => {
-    const result = selectView(report, { component: "core", query: "", sort: "affinity" });
+    const result = selectView(report, { components: ["core"], authors: [], query: "", sort: "affinity", sortDir: "desc", hideApproved: false, hideDrafts: false });
     expect(result.map((p) => p.number)).toEqual([2, 3, 1]);
   });
 
-  it("affinity falls back to reviewability order when component is null", () => {
-    const result = selectView(report, { component: null, query: "", sort: "affinity" });
+  it("affinity with multiple components sorts by max share among them", () => {
+    const withAuth = makeReport([{ ...prA, componentShares: { core: 0.1, auth: 0.8 } }, prB, prC]);
+    const result = selectView(withAuth, { components: ["core", "auth"], authors: [], query: "", sort: "affinity", sortDir: "desc", hideApproved: false, hideDrafts: false });
+    expect(result.map((p) => p.number)).toEqual([2, 1, 3]);
+  });
+
+  it("affinity falls back to reviewability order when no components are selected", () => {
+    const result = selectView(report, { components: [], authors: [], query: "", sort: "affinity", sortDir: "desc", hideApproved: false, hideDrafts: false });
     expect(result.map((p) => p.number)).toEqual([1, 3, 2]);
   });
 
-  it("newest: updatedAt desc", () => {
-    const result = selectView(report, { component: null, query: "", sort: "newest" });
+  it("updated: updatedAt desc", () => {
+    const result = selectView(report, { components: [], authors: [], query: "", sort: "updated", sortDir: "desc", hideApproved: false, hideDrafts: false });
     expect(result.map((p) => p.number)).toEqual([3, 1, 2]);
   });
 
-  it("smallest: additions+deletions asc", () => {
-    const result = selectView(report, { component: null, query: "", sort: "smallest" });
+  it("size: additions+deletions asc", () => {
+    const result = selectView(report, { components: [], authors: [], query: "", sort: "size", sortDir: "asc", hideApproved: false, hideDrafts: false });
     expect(result.map((p) => p.number)).toEqual([2, 1, 3]);
+  });
+
+  it("sortDir asc reverses every key", () => {
+    const base = { components: ["core"], authors: [], query: "", hideApproved: false, hideDrafts: false };
+    for (const sort of ["reviewability", "affinity", "updated", "size"] as const) {
+      const desc = selectView(report, { ...base, sort, sortDir: "desc" }).map((p) => p.number);
+      const asc = selectView(report, { ...base, sort, sortDir: "asc" }).map((p) => p.number);
+      expect(asc).toEqual([...desc].reverse());
+    }
+  });
+});
+
+describe("componentCounts", () => {
+  const prs = [
+    makePr({ number: 1, title: "Fix login bug", componentPrimary: "auth", componentsSecondary: ["core"] }),
+    makePr({ number: 2, title: "Refactor rendering", componentPrimary: "ui", reviewState: "APPROVED" }),
+    makePr({ number: 3, title: "Add core cache", componentPrimary: "core" }),
+  ];
+  const report: Report = {
+    ...makeReport(prs),
+    components: [
+      { name: "auth", prCount: 1 },
+      { name: "core", prCount: 2 },
+      { name: "ui", prCount: 1 },
+    ],
+  };
+
+  it("counts primary and secondary matches, sorted by count desc then name", () => {
+    expect(componentCounts(report, { ...DEFAULT_VIEW, hideApproved: false, hideDrafts: false })).toEqual([
+      { name: "core", prCount: 2 },
+      { name: "auth", prCount: 1 },
+      { name: "ui", prCount: 1 },
+    ]);
+  });
+
+  it("applies the query filter to counts", () => {
+    expect(componentCounts(report, { ...DEFAULT_VIEW, query: "login", hideApproved: false, hideDrafts: false })).toEqual([
+      { name: "auth", prCount: 1 },
+      { name: "core", prCount: 1 },
+      { name: "ui", prCount: 0 },
+    ]);
+  });
+
+  it("applies hideApproved to counts", () => {
+    const counts = componentCounts(report, { ...DEFAULT_VIEW, hideApproved: true });
+    expect(counts).toContainEqual({ name: "ui", prCount: 0 });
+  });
+
+  it("applies the author selection to counts", () => {
+    const byAuthor: Report = {
+      ...makeReport([
+        makePr({ number: 1, author: "octocat", componentPrimary: "auth" }),
+        makePr({ number: 2, author: "hubot", componentPrimary: "core" }),
+      ]),
+      components: [
+        { name: "auth", prCount: 1 },
+        { name: "core", prCount: 1 },
+      ],
+    };
+    expect(componentCounts(byAuthor, { ...DEFAULT_VIEW, authors: ["octocat"], hideApproved: false, hideDrafts: false })).toEqual([
+      { name: "auth", prCount: 1 },
+      { name: "core", prCount: 0 },
+    ]);
+  });
+
+  it("ignores the component selection so other counts stay visible", () => {
+    const counts = componentCounts(report, { ...DEFAULT_VIEW, components: ["auth"], hideApproved: false, hideDrafts: false });
+    expect(counts).toContainEqual({ name: "core", prCount: 2 });
+    expect(counts).toContainEqual({ name: "ui", prCount: 1 });
+  });
+});
+
+describe("authorCounts", () => {
+  const report = makeReport([
+    makePr({ number: 1, author: "octocat", title: "Fix login bug", componentPrimary: "auth" }),
+    makePr({ number: 2, author: "octocat", title: "Refactor rendering", componentPrimary: "ui" }),
+    makePr({ number: 3, author: "hubot", title: "Add core cache", componentPrimary: "core" }),
+    makePr({ number: 4, author: "monalisa", title: "Tidy login form", componentPrimary: "auth", reviewState: "APPROVED" }),
+  ]);
+
+  it("lists each distinct author once, sorted by count desc then login", () => {
+    expect(authorCounts(report, { ...DEFAULT_VIEW, hideApproved: false, hideDrafts: false })).toEqual([
+      { login: "octocat", prCount: 2 },
+      { login: "hubot", prCount: 1 },
+      { login: "monalisa", prCount: 1 },
+    ]);
+  });
+
+  it("applies the query filter to counts", () => {
+    expect(authorCounts(report, { ...DEFAULT_VIEW, query: "login", hideApproved: false, hideDrafts: false })).toEqual([
+      { login: "monalisa", prCount: 1 },
+      { login: "octocat", prCount: 1 },
+      { login: "hubot", prCount: 0 },
+    ]);
+  });
+
+  it("applies hideApproved to counts", () => {
+    expect(authorCounts(report, { ...DEFAULT_VIEW, hideApproved: true })).toContainEqual({
+      login: "monalisa",
+      prCount: 0,
+    });
+  });
+
+  it("applies the component selection to counts", () => {
+    expect(authorCounts(report, { ...DEFAULT_VIEW, components: ["auth"], hideApproved: false, hideDrafts: false })).toEqual([
+      { login: "monalisa", prCount: 1 },
+      { login: "octocat", prCount: 1 },
+      { login: "hubot", prCount: 0 },
+    ]);
+  });
+
+  it("ignores its own author selection so other authors stay pickable", () => {
+    const counts = authorCounts(report, { ...DEFAULT_VIEW, authors: ["hubot"], hideApproved: false, hideDrafts: false });
+    expect(counts).toContainEqual({ login: "octocat", prCount: 2 });
+    expect(counts).toContainEqual({ login: "monalisa", prCount: 1 });
+  });
+
+  it("keeps zero-count authors in the list so options never vanish mid-interaction", () => {
+    const counts = authorCounts(report, { ...DEFAULT_VIEW, query: "nothing matches", hideApproved: false, hideDrafts: false });
+    expect(counts.map((a) => a.login).sort()).toEqual(["hubot", "monalisa", "octocat"]);
+    expect(counts.every((a) => a.prCount === 0)).toBe(true);
+  });
+});
+
+describe("unreviewedCount", () => {
+  it("counts PRs awaiting a first review", () => {
+    const report = makeReport([
+      makePr({ number: 1, reviewState: "REVIEW_REQUIRED" }),
+      makePr({ number: 2, reviewState: "NONE" }),
+    ]);
+    expect(unreviewedCount(report)).toBe(2);
+  });
+
+  it("excludes PRs that have already been reviewed", () => {
+    const report = makeReport([
+      makePr({ number: 1, reviewState: "APPROVED" }),
+      makePr({ number: 2, reviewState: "CHANGES_REQUESTED" }),
+      makePr({ number: 3, reviewState: "REVIEW_REQUIRED" }),
+    ]);
+    expect(unreviewedCount(report)).toBe(1);
+  });
+
+  it("excludes drafts, which aren't asking for review yet", () => {
+    const report = makeReport([
+      makePr({ number: 1, reviewState: "REVIEW_REQUIRED", isDraft: true }),
+      makePr({ number: 2, reviewState: "NONE", isDraft: false }),
+    ]);
+    expect(unreviewedCount(report)).toBe(1);
+  });
+
+  it("returns 0 when nothing is awaiting review", () => {
+    expect(unreviewedCount(makeReport([makePr({ number: 1, reviewState: "APPROVED" })]))).toBe(0);
+    expect(unreviewedCount(makeReport([]))).toBe(0);
+  });
+});
+
+describe("affinityOf", () => {
+  const pr = makePr({ number: 1, componentShares: { core: 0.3, auth: 0.7 } });
+
+  it("returns the max share among the selected components", () => {
+    expect(affinityOf(pr, ["core", "auth"])).toBe(0.7);
+    expect(affinityOf(pr, ["core"])).toBe(0.3);
+  });
+
+  it("returns 0 for unknown components or an empty selection", () => {
+    expect(affinityOf(pr, ["missing"])).toBe(0);
+    expect(affinityOf(pr, [])).toBe(0);
   });
 });
 
@@ -168,18 +479,18 @@ describe("topReasons", () => {
 });
 
 describe("normalizeView", () => {
-  it("resets affinity sort to reviewability when component is null", () => {
-    const result = normalizeView({ component: null, query: "", sort: "affinity" });
-    expect(result).toEqual({ component: null, query: "", sort: "reviewability" });
+  it("resets affinity sort to reviewability when no components are selected", () => {
+    const result = normalizeView({ components: [], authors: [], query: "", sort: "affinity", sortDir: "desc", hideApproved: false, hideDrafts: false });
+    expect(result).toEqual({ components: [], authors: [], query: "", sort: "reviewability", sortDir: "desc", hideApproved: false, hideDrafts: false });
   });
 
-  it("leaves affinity sort untouched when a component is selected", () => {
-    const opts = { component: "core", query: "", sort: "affinity" } as const;
+  it("leaves affinity sort untouched when components are selected", () => {
+    const opts: ViewOptions = { components: ["core"], authors: [], query: "", sort: "affinity", sortDir: "desc", hideApproved: false, hideDrafts: false };
     expect(normalizeView(opts)).toEqual(opts);
   });
 
-  it("leaves non-affinity sorts untouched regardless of component", () => {
-    const opts = { component: null, query: "x", sort: "newest" } as const;
+  it("leaves non-affinity sorts untouched regardless of selection", () => {
+    const opts: ViewOptions = { components: [], authors: [], query: "x", sort: "updated", sortDir: "desc", hideApproved: false, hideDrafts: false };
     expect(normalizeView(opts)).toEqual(opts);
   });
 });
