@@ -63,27 +63,34 @@ describe("selectView: query filter", () => {
 });
 
 describe("selectView: sort orders", () => {
+  // Values are deliberately chosen so each of the four sorts below produces a
+  // DISTINCT permutation of [1, 2, 3] — a mis-wired sort (e.g. affinity
+  // accidentally sorting by newest) would be caught by a mismatched order.
+  //   reviewability (score desc):        1, 3, 2
+  //   newest (updatedAt desc):           3, 1, 2
+  //   smallest (additions+deletions asc):2, 1, 3
+  //   affinity (componentShares desc):   2, 3, 1
   const prA = makePr({
     number: 1,
-    updatedAt: "2026-08-21T10:00:00.000Z",
-    additions: 5,
-    deletions: 5,
+    updatedAt: "2026-08-21T12:00:00.000Z",
+    additions: 30,
+    deletions: 20,
     componentShares: { core: 0.1 },
     scores: { reviewability: { score: 90, breakdown: [] } },
   });
   const prB = makePr({
     number: 2,
-    updatedAt: "2026-08-21T14:00:00.000Z",
-    additions: 100,
-    deletions: 100,
-    componentShares: { core: 0.7 },
+    updatedAt: "2026-08-21T08:00:00.000Z",
+    additions: 5,
+    deletions: 5,
+    componentShares: { core: 0.9 },
     scores: { reviewability: { score: 30, breakdown: [] } },
   });
   const prC = makePr({
     number: 3,
-    updatedAt: "2026-08-21T12:00:00.000Z",
-    additions: 20,
-    deletions: 20,
+    updatedAt: "2026-08-21T16:00:00.000Z",
+    additions: 100,
+    deletions: 100,
     componentShares: { core: 0.5 },
     scores: { reviewability: { score: 60, breakdown: [] } },
   });
@@ -106,12 +113,12 @@ describe("selectView: sort orders", () => {
 
   it("newest: updatedAt desc", () => {
     const result = selectView(report, { component: null, query: "", sort: "newest" });
-    expect(result.map((p) => p.number)).toEqual([2, 3, 1]);
+    expect(result.map((p) => p.number)).toEqual([3, 1, 2]);
   });
 
   it("smallest: additions+deletions asc", () => {
     const result = selectView(report, { component: null, query: "", sort: "smallest" });
-    expect(result.map((p) => p.number)).toEqual([1, 3, 2]);
+    expect(result.map((p) => p.number)).toEqual([2, 1, 3]);
   });
 });
 

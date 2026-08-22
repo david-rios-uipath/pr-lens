@@ -1,16 +1,17 @@
-import { Box, Button, Flash, Heading, Spinner, Text } from "@primer/react";
-import type { Report } from "@pr-lens/core";
+import { XIcon } from "@primer/octicons-react";
+import { Box, Button, Flash, Heading, IconButton, Spinner, Text } from "@primer/react";
 import type { JSX } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { fetchReport, triggerScan } from "./api.js";
 import { PrRow } from "./components/PrRow.js";
+import { afterDismissRefreshError, afterLoadError, afterRefreshError, afterReportLoaded } from "./lib/appState.js";
+import type { LoadState } from "./lib/appState.js";
 import { agoLabel, selectView } from "./lib/selectors.js";
 import type { ViewOptions } from "./lib/selectors.js";
 
-type LoadState =
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | { status: "loaded"; report: Report };
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 export function App(): JSX.Element {
   const [state, setState] = useState<LoadState>({ status: "loading" });
@@ -22,10 +23,10 @@ export function App(): JSX.Element {
     setState({ status: "loading" });
     fetchReport()
       .then((report) => {
-        setState({ status: "loaded", report });
+        setState(afterReportLoaded(report));
       })
       .catch((err: unknown) => {
-        setState({ status: "error", message: err instanceof Error ? err.message : String(err) });
+        setState(afterLoadError(errorMessage(err)));
       });
   }, []);
 
@@ -37,14 +38,18 @@ export function App(): JSX.Element {
     setScanning(true);
     triggerScan()
       .then((report) => {
-        setState({ status: "loaded", report });
+        setState(afterReportLoaded(report));
       })
       .catch((err: unknown) => {
-        setState({ status: "error", message: err instanceof Error ? err.message : String(err) });
+        setState((prev) => afterRefreshError(prev, errorMessage(err)));
       })
       .finally(() => {
         setScanning(false);
       });
+  }, []);
+
+  const dismissRefreshError = useCallback(() => {
+    setState(afterDismissRefreshError);
   }, []);
 
   if (state.status === "loading") {
@@ -63,7 +68,7 @@ export function App(): JSX.Element {
     );
   }
 
-  const { report } = state;
+  const { report, refreshError } = state;
   const rows = selectView(report, view);
 
   return (
@@ -81,6 +86,19 @@ export function App(): JSX.Element {
           {scanning ? "Refreshing…" : "Refresh"}
         </Button>
       </Box>
+
+      {refreshError !== null && (
+        <Flash variant="danger" sx={{ mb: 3, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <Text>Refresh failed: {refreshError}</Text>
+          <IconButton
+            aria-label="Dismiss refresh error"
+            icon={XIcon}
+            variant="invisible"
+            size="small"
+            onClick={dismissRefreshError}
+          />
+        </Flash>
+      )}
 
       <Box sx={{ border: "1px solid", borderColor: "border.default", borderRadius: 2 }}>
         {rows.map((pr, index) => (
