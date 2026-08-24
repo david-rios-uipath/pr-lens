@@ -1,0 +1,71 @@
+/* top-anchored: a wrapping title grows downward without dragging the score,
+   diff and component tags down with it */
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--base-size-16);
+  padding-block: var(--base-size-12) var(--base-size-8);
+  padding-inline: var(--base-size-16);
+  border-block-end: var(--borderWidth-thin) solid var(--borderColor-default);
+}
+
+.scoreCell {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-4);
+}
+
+.scoreButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.affinity {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+  white-space: nowrap;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+}
+
+/* the negative margin trims the title's line-box leading so it sits level
+   with the score pill */
+.title {
+  display: block;
+  margin-block-start: calc(-1 * var(--base-size-4));
+}
+
+.subtitle {
+  display: block;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.diff {
+  font-size: var(--text-body-size-small);
+  white-space: nowrap;
+}
+
+.additions {
+  color: var(--fgColor-success);
+}
+
+.deletions {
+  color: var(--fgColor-danger);
+}
+
+.components {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--base-size-4);
+}
+
+.componentLabel {
+  width: min-content;
+}

@@ -1,0 +1,54 @@
+.wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.tooltip {
+  position: absolute;
+  inset-block-start: 100%;
+  inset-inline-start: 0;
+  z-index: 1;
+  margin-block-start: var(--base-size-4);
+  padding-block: var(--base-size-4);
+  padding-inline: var(--base-size-8);
+  border-radius: var(--borderRadius-medium);
+  background-color: var(--bgColor-emphasis);
+  box-shadow: var(--shadow-resting-medium);
+  white-space: nowrap;
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 80ms ease-in;
+}
+
+.wrapper:hover > .tooltip,
+.wrapper:focus-within > .tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tooltip {
+    transition: none;
+  }
+}
+
+/*
+  Both lines stay at full --fgColor-onEmphasis. Dimming the hint (opacity, or a
+  muted grey) would drop it under AA against the emphasis surface, so the
+  subheading is set apart by size and weight instead.
+*/
+.title {
+  display: block;
+  color: var(--fgColor-onEmphasis);
+  font-size: var(--text-body-size-small);
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.hint {
+  composes: title;
+  /* primitives bottoms out at 12px (--base-text-size-xs); the hint needs to
+     read as subordinate to the 12px title, so this one value is literal */
+  font-size: 11px;
+  font-weight: var(--base-text-weight-normal);
+}

@@ -1,8 +1,10 @@
 import { TriangleDownIcon } from "@primer/octicons-react";
 import { Button, SelectPanel } from "@primer/react";
 import type { SelectPanelProps } from "@primer/react";
+import { clsx } from "clsx";
 import type { ElementType, JSX } from "react";
 import { useState } from "react";
+import styles from "./FacetSelect.module.css";
 
 type PanelItem = SelectPanelProps["items"][number];
 
@@ -92,7 +94,7 @@ export function FacetSelect({
                 onClick={() => {
                   onSelectedChange([]);
                 }}
-                sx={{ width: "100%" }}
+                className={clsx(styles.clearButton)}
               >
                 {`Clear selected ${pluralNoun}`}
               </Button>

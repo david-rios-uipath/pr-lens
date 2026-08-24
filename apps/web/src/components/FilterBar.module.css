@@ -1,0 +1,23 @@
+.bar {
+  margin-block-end: var(--base-size-16);
+}
+
+.facets {
+  min-width: 0;
+}
+
+.controls {
+  flex-shrink: 0;
+}
+
+.filterButton {
+  color: var(--fgColor-muted);
+}
+
+.filterButtonActive {
+  color: var(--fgColor-accent);
+}
+
+.toggleLabel {
+  white-space: nowrap;
+}

@@ -1,42 +1,29 @@
 import { CheckIcon } from "@primer/octicons-react";
-import { Box, Spinner, Text } from "@primer/react";
+import { Spinner, Text } from "@primer/react";
+import { clsx } from "clsx";
 import type { JSX } from "react";
 import type { ScanProgress } from "../lib/scanProgress";
 import { formatElapsed } from "../lib/scanProgress";
+import styles from "./ScanProgressIndicator.module.css";
 
 export function ScanProgressIndicator({ progress }: { progress: ScanProgress }): JSX.Element {
   return (
-    <Box
-      aria-live="polite"
-      sx={{
-        display: "flex",
-        flexWrap: "wrap",
-        alignItems: "center",
-        gap: 3,
-        mb: 3,
-        px: 3,
-        py: 2,
-        border: "1px solid",
-        borderColor: "border.default",
-        borderRadius: 2,
-        bg: "canvas.subtle",
-      }}
-    >
+    <div aria-live="polite" className={clsx(styles.bar)}>
       {progress.map((stage) => (
-        <Box key={stage.stage} sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <div key={stage.stage} className={clsx(styles.stage)}>
           {stage.state === "done" && (
-            <Box sx={{ color: "success.fg", display: "flex" }}>
+            <span className={clsx(styles.doneIcon)}>
               <CheckIcon size={12} />
-            </Box>
+            </span>
           )}
           {stage.state === "active" && <Spinner size="small" />}
-          <Text sx={{ fontSize: 0, color: stage.state === "pending" ? "fg.muted" : "fg.default" }}>
+          <Text className={clsx(stage.state === "pending" ? styles.labelPending : styles.label)}>
             {stage.label}
             {stage.state === "done" && stage.elapsedMs !== undefined && ` (${formatElapsed(stage.elapsedMs)})`}
             {stage.state === "active" && stage.detail !== undefined && ` — ${stage.detail}`}
           </Text>
-        </Box>
+        </div>
       ))}
-    </Box>
+    </div>
   );
 }

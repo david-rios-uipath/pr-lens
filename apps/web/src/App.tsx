@@ -4,19 +4,23 @@ import {
   ActionList,
   ActionMenu,
   BaseStyles,
-  Box,
   Button,
   Flash,
   Heading,
   IconButton,
   Label,
   Spinner,
+  Stack,
   Text,
-  ThemeProvider,
 } from "@primer/react";
+// next/ThemeProvider is the CSS-variable-only one; the root export still ships
+// JS theme values we no longer use.
+import { ThemeProvider } from "@primer/react/next";
+import { clsx } from "clsx";
 import type { JSX, ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { fetchRepos, fetchReport, triggerScan } from "./api";
+import styles from "./App.module.css";
 import { FilterBar } from "./components/FilterBar";
 import { PrRow } from "./components/PrRow";
 import { ScanProgressIndicator } from "./components/ScanProgressIndicator";
@@ -31,12 +35,11 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-// ThemeProvider/BaseStyles don't paint a background; without this the body stays white in dark mode.
 function Shell({ colorMode, children }: { colorMode: "dark" | "light"; children: ReactNode }): JSX.Element {
   return (
     <ThemeProvider colorMode={colorMode}>
       <BaseStyles>
-        <Box sx={{ bg: "canvas.default", minHeight: "100vh" }}>{children}</Box>
+        <div className={clsx(styles.shell)}>{children}</div>
       </BaseStyles>
     </ThemeProvider>
   );
@@ -126,9 +129,9 @@ export function App(): JSX.Element {
   if (state.status === "loading") {
     return (
       <Shell colorMode={colorMode}>
-        <Box sx={{ display: "flex", justifyContent: "center", p: 6 }}>
+        <div className={clsx(styles.centered)}>
           <Spinner size="large" srText="Loading report" />
-        </Box>
+        </div>
       </Shell>
     );
   }
@@ -136,9 +139,9 @@ export function App(): JSX.Element {
   if (state.status === "error") {
     return (
       <Shell colorMode={colorMode}>
-        <Box sx={{ p: 4 }}>
+        <div className={clsx(styles.errorPad)}>
           <Flash variant="danger">{state.message}</Flash>
-        </Box>
+        </div>
       </Shell>
     );
   }
@@ -149,15 +152,18 @@ export function App(): JSX.Element {
 
   return (
     <Shell colorMode={colorMode}>
-      <Box sx={{ maxWidth: "1012px", mx: "auto", p: 4 }}>
-        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 3 }}>
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+      <div className={clsx(styles.page)}>
+        <Stack
+          direction="horizontal"
+          align="center"
+          justify="space-between"
+          gap="normal"
+          className={clsx(styles.header)}
+        >
+          <Stack direction="vertical" gap="condensed">
             {repos.length > 1 ? (
               <ActionMenu>
-                <ActionMenu.Button
-                  variant="invisible"
-                  sx={{ color: "fg.default", fontSize: 3, fontWeight: "bold", px: 2, ml: -2 }}
-                >
+                <ActionMenu.Button variant="invisible" className={clsx(styles.repoButton)}>
                   {report.repo}
                 </ActionMenu.Button>
                 <ActionMenu.Overlay width="medium">
@@ -180,31 +186,29 @@ export function App(): JSX.Element {
                 </ActionMenu.Overlay>
               </ActionMenu>
             ) : (
-              <Heading as="h1" sx={{ fontSize: 3 }}>
+              <Heading as="h1" className={clsx(styles.heading)}>
                 {report.repo}
               </Heading>
             )}
-            <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-              <Text sx={{ color: "fg.muted", fontSize: 0 }}>
-                generated {agoLabel(report.generatedAt, Date.now())}
-              </Text>
+            <Stack direction="horizontal" align="center" gap="condensed">
+              <Text className={clsx(styles.meta)}>generated {agoLabel(report.generatedAt, Date.now())}</Text>
               {unreviewed > 0 && (
                 <Label variant="attention">{`${String(unreviewed)} unreviewed`}</Label>
               )}
-            </Box>
-          </Box>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+            </Stack>
+          </Stack>
+          <Stack direction="horizontal" align="center" gap="condensed">
             {colorModeToggle}
             <Button onClick={handleRefresh} disabled={scanProgress !== null}>
               {scanProgress !== null ? "Refreshing…" : "Refresh"}
             </Button>
-          </Box>
-        </Box>
+          </Stack>
+        </Stack>
 
         {scanProgress !== null && <ScanProgressIndicator progress={scanProgress} />}
 
         {refreshError !== null && (
-          <Flash variant="danger" sx={{ mb: 3, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <Flash variant="danger" className={clsx(styles.refreshError)}>
             <Text>Refresh failed: {refreshError}</Text>
             <IconButton
               aria-label="Dismiss refresh error"
@@ -223,7 +227,7 @@ export function App(): JSX.Element {
           onChange={setView}
         />
 
-        <Box sx={{ border: "1px solid", borderColor: "border.default", borderRadius: 2 }}>
+        <div className={clsx(styles.list)}>
           {rows.map((pr) =>
             view.sort === "affinity" && view.components.length > 0 ? (
               <PrRow key={pr.number} pr={pr} affinity={affinityOf(pr, view.components)} />
@@ -231,8 +235,8 @@ export function App(): JSX.Element {
               <PrRow key={pr.number} pr={pr} />
             ),
           )}
-        </Box>
-      </Box>
+        </div>
+      </div>
     </Shell>
   );
 }

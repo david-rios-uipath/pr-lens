@@ -1,0 +1,56 @@
+/* ThemeProvider/BaseStyles don't paint a background; without this the body stays white in dark mode. */
+.shell {
+  min-height: 100vh;
+  background-color: var(--bgColor-default);
+}
+
+.centered {
+  display: flex;
+  justify-content: center;
+  padding: var(--base-size-40);
+}
+
+.errorPad {
+  padding: var(--base-size-24);
+}
+
+.page {
+  max-width: 1012px;
+  margin-inline: auto;
+  padding: var(--base-size-24);
+}
+
+.header {
+  margin-block-end: var(--base-size-16);
+}
+
+/* Negative inline start pulls the button's own padding back to the page gutter,
+   so the repo name lines up with the heading it replaces. */
+.repoButton {
+  padding-inline: var(--base-size-8);
+  margin-inline-start: calc(-1 * var(--base-size-8));
+  color: var(--fgColor-default);
+  font-size: var(--text-title-size-medium);
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.heading {
+  font-size: var(--text-title-size-medium);
+}
+
+.meta {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.refreshError {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-block-end: var(--base-size-16);
+}
+
+.list {
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+}

@@ -1,0 +1,33 @@
+.table {
+  width: 100%;
+  margin-block-start: var(--base-size-8);
+  border-collapse: collapse;
+  font-size: var(--text-body-size-small);
+}
+
+.head {
+  padding-inline-end: var(--base-size-8);
+  padding-block-end: var(--base-size-4);
+  color: var(--fgColor-muted);
+  text-align: left;
+}
+
+.headLast {
+  composes: head;
+  padding-inline-end: 0;
+}
+
+.cell {
+  padding-inline-end: var(--base-size-8);
+  padding-block: var(--base-size-4);
+}
+
+.cellLast {
+  composes: cell;
+  padding-inline-end: 0;
+}
+
+/* a zero-weight factor didn't contribute to the score — dim the whole row */
+.rowUnweighted {
+  color: var(--fgColor-muted);
+}

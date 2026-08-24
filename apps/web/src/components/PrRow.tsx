@@ -1,10 +1,12 @@
 import { CheckIcon, DotFillIcon, XIcon } from "@primer/octicons-react";
-import { Box, Label, Link, Text } from "@primer/react";
+import { Label, Link, Text } from "@primer/react";
 import type { ReportPr } from "@pr-lens/core";
 import { useState } from "react";
+import { clsx } from "clsx";
 import type { JSX } from "react";
 import { agoLabel, reviewLabel, scoreOf } from "../lib/selectors";
 import { HintTooltip } from "./HintTooltip";
+import styles from "./PrRow.module.css";
 import { ScoreBreakdown } from "./ScoreBreakdown";
 
 function scoreVariant(score: number): "success" | "attention" | "danger" {
@@ -14,9 +16,9 @@ function scoreVariant(score: number): "success" | "attention" | "danger" {
 }
 
 function CiIcon({ ci }: { ci: ReportPr["ci"] }): JSX.Element {
-  if (ci === "SUCCESS") return <CheckIcon fill="var(--fgColor-success, #3fb950)" />;
-  if (ci === "FAILURE") return <XIcon fill="var(--fgColor-danger, #f85149)" />;
-  return <DotFillIcon fill="var(--fgColor-muted, #848d97)" />;
+  if (ci === "SUCCESS") return <CheckIcon fill="var(--fgColor-success)" />;
+  if (ci === "FAILURE") return <XIcon fill="var(--fgColor-danger)" />;
+  return <DotFillIcon fill="var(--fgColor-muted)" />;
 }
 
 export function PrRow({ pr, affinity }: { pr: ReportPr; affinity?: number }): JSX.Element {
@@ -26,24 +28,10 @@ export function PrRow({ pr, affinity }: { pr: ReportPr; affinity?: number }): JS
   const breakdownId = `breakdown-${String(pr.number)}`;
 
   return (
-    <Box
-      sx={{
-        display: "flex",
-        // top-anchored: a wrapping title grows downward without dragging the
-        // score, diff and component tags down with it
-        alignItems: "flex-start",
-        gap: 3,
-        pt: "12px",
-        pb: 2,
-        px: 3,
-        borderBottom: "1px solid",
-        borderColor: "border.default",
-      }}
-    >
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+    <div className={clsx(styles.row)}>
+      <div className={clsx(styles.scoreCell)}>
         <HintTooltip title="Reviewability score" hint="click to learn more">
-          <Box
-            as="button"
+          <button
             type="button"
             onClick={() => {
               setBreakdownOpen((prev) => !prev);
@@ -51,21 +39,18 @@ export function PrRow({ pr, affinity }: { pr: ReportPr; affinity?: number }): JS
             aria-expanded={breakdownOpen}
             aria-controls={breakdownId}
             aria-label={`Reviewability score ${String(score)} — click to learn more`}
-            sx={{ background: "none", border: 0, p: 0, cursor: "pointer" }}
+            className={clsx(styles.scoreButton)}
           >
             <Label variant={scoreVariant(score)}>{score}</Label>
-          </Box>
+          </button>
         </HintTooltip>
         {affinity !== undefined && (
-          <Text sx={{ fontSize: 0, color: "fg.muted", whiteSpace: "nowrap" }}>
-            aff {Math.round(affinity * 100)}
-          </Text>
+          <Text className={clsx(styles.affinity)}>aff {Math.round(affinity * 100)}</Text>
         )}
-      </Box>
+      </div>
 
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        {/* -4px trims the title's line-box leading so it sits level with the score pill */}
-        <Text as="span" sx={{ display: "block", mt: "-4px" }}>
+      <div className={clsx(styles.main)}>
+        <Text as="span" className={clsx(styles.title)}>
           <Link href={pr.url} target="_blank" rel="noreferrer">
             {pr.title}
           </Link>
@@ -73,27 +58,27 @@ export function PrRow({ pr, affinity }: { pr: ReportPr; affinity?: number }): JS
           &nbsp;
           <CiIcon ci={pr.ci} />
         </Text>
-        <Text sx={{ fontSize: 0, color: "fg.muted", display: "block" }}>
+        <Text className={clsx(styles.subtitle)}>
           #{pr.number} by {pr.author} · {agoLabel(pr.updatedAt, Date.now())} ·{" "}
           {pr.changedFiles} {pr.changedFiles === 1 ? "file" : "files"}
         </Text>
         <ScoreBreakdown pr={pr} open={breakdownOpen} id={breakdownId} />
-      </Box>
+      </div>
 
-      <Text sx={{ fontSize: 0, whiteSpace: "nowrap" }}>
-        <Text sx={{ color: "success.fg" }}>+{pr.additions}</Text>{" "}
-        <Text sx={{ color: "danger.fg" }}>-{pr.deletions}</Text>
+      <Text className={clsx(styles.diff)}>
+        <Text className={clsx(styles.additions)}>+{pr.additions}</Text>{" "}
+        <Text className={clsx(styles.deletions)}>-{pr.deletions}</Text>
       </Text>
       {review !== null && <Label variant={review.variant}>{review.text}</Label>}
 
-      <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
-        <Label sx={{ width: "min-content"}}>{pr.componentPrimary}</Label>
+      <div className={clsx(styles.components)}>
+        <Label className={clsx(styles.componentLabel)}>{pr.componentPrimary}</Label>
         {pr.componentsSecondary.map((component) => (
-          <Label key={component} variant="secondary" sx={{ width: "min-content"}}>
+          <Label key={component} variant="secondary" className={clsx(styles.componentLabel)}>
             {component}
           </Label>
         ))}
-      </Box>
-    </Box>
+      </div>
+    </div>
   );
 }
