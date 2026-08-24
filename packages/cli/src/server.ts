@@ -2,14 +2,14 @@ import { readFile, realpath } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { extname, resolve, sep } from "node:path";
-import type { Report, ReportSummary } from "@pr-lens/core";
+import type { Report, ReportSummary, ScanProgressEvent, ScanProgressListener } from "@pr-lens/core";
 import { isValidRepoName, ReportNotFoundError } from "@pr-lens/core";
 import { messageFor } from "./fail";
 
 export interface ServerDeps {
   dir: string;
   webDist: string | null;
-  scan: (repo?: string) => Promise<Report>;
+  scan: (repo?: string, onProgress?: ScanProgressListener) => Promise<Report>;
   readReport: (repo?: string) => Promise<Report>;
   listReports: () => Promise<ReportSummary[]>;
 }
@@ -119,20 +119,42 @@ async function serveStatic(webDist: string | null, pathname: string, req: Incomi
   }
 }
 
-export function createServer(deps: ServerDeps): Server {
-  const inFlightScans = new Map<string, Promise<Report>>();
+interface InFlightScan {
+  promise: Promise<Report>;
+  /** Events emitted so far, replayed to late SSE subscribers. */
+  events: ScanProgressEvent[];
+  listeners: Set<ScanProgressListener>;
+}
 
-  function runScanOnce(repo?: string): Promise<Report> {
+function sendSseEvent(res: ServerResponse, event: string, data: unknown): void {
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+export function createServer(deps: ServerDeps): Server {
+  const inFlightScans = new Map<string, InFlightScan>();
+
+  function runScanOnce(repo?: string): InFlightScan {
     const key = repo ?? "";
     const existing = inFlightScans.get(key);
     if (existing !== undefined) {
       return existing;
     }
-    const scan = deps.scan(repo).finally(() => {
-      inFlightScans.delete(key);
-    });
-    inFlightScans.set(key, scan);
-    return scan;
+    // Built piecewise: the scan may emit progress synchronously, before the entry object exists.
+    const events: ScanProgressEvent[] = [];
+    const listeners = new Set<ScanProgressListener>();
+    const promise = deps
+      .scan(repo, (event) => {
+        events.push(event);
+        for (const listener of listeners) {
+          listener(event);
+        }
+      })
+      .finally(() => {
+        inFlightScans.delete(key);
+      });
+    const entry: InFlightScan = { events, listeners, promise };
+    inFlightScans.set(key, entry);
+    return entry;
   }
 
   async function handleReport(res: ServerResponse, repo?: string): Promise<void> {
@@ -144,10 +166,36 @@ export function createServer(deps: ServerDeps): Server {
     }
   }
 
-  async function handleScan(res: ServerResponse, repo?: string): Promise<void> {
+  async function handleScan(req: IncomingMessage, res: ServerResponse, repo?: string): Promise<void> {
+    const entry = runScanOnce(repo);
+
+    if (req.headers.accept?.includes("text/event-stream") === true) {
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      });
+      const listener: ScanProgressListener = (event) => {
+        sendSseEvent(res, "progress", event);
+      };
+      for (const event of entry.events) {
+        listener(event);
+      }
+      entry.listeners.add(listener);
+      try {
+        const report = await entry.promise;
+        sendSseEvent(res, "report", report);
+      } catch (err) {
+        sendSseEvent(res, "error", { error: messageFor(err) });
+      } finally {
+        entry.listeners.delete(listener);
+        res.end();
+      }
+      return;
+    }
+
     try {
-      const report = await runScanOnce(repo);
-      sendJson(res, 200, report);
+      sendJson(res, 200, await entry.promise);
     } catch (err) {
       sendJson(res, 500, { error: messageFor(err) });
     }
@@ -187,7 +235,7 @@ export function createServer(deps: ServerDeps): Server {
           sendJson(res, 400, { error: "Invalid repo parameter (expected owner/name)" });
           return;
         }
-        await (pathname === "/api/report" ? handleReport(res, repo) : handleScan(res, repo));
+        await (pathname === "/api/report" ? handleReport(res, repo) : handleScan(req, res, repo));
         return;
       }
 

@@ -1,4 +1,5 @@
-import type { Report, ReportSummary } from "@pr-lens/core";
+import type { Report, ReportSummary, ScanProgressEvent } from "@pr-lens/core";
+import { createSseParser } from "./lib/sse";
 
 interface ErrorBody {
   error?: string;
@@ -33,8 +34,49 @@ export function fetchReport(repo?: string): Promise<Report> {
   return requestJson<Report>(withRepo("/api/report", repo));
 }
 
-export function triggerScan(repo?: string): Promise<Report> {
-  return requestJson<Report>(withRepo("/api/scan", repo), { method: "POST" });
+export async function triggerScan(
+  repo?: string,
+  onProgress?: (event: ScanProgressEvent) => void,
+): Promise<Report> {
+  const res = await fetch(withRepo("/api/scan", repo), {
+    method: "POST",
+    headers: { Accept: "text/event-stream" },
+  });
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res));
+  }
+  const isStream = res.headers.get("content-type")?.includes("text/event-stream") ?? false;
+  if (!isStream || res.body === null) {
+    return (await res.json()) as Report;
+  }
+
+  let report: Report | undefined;
+  let scanError: string | undefined;
+  const parser = createSseParser((event, data) => {
+    if (event === "progress") {
+      onProgress?.(data as ScanProgressEvent);
+    } else if (event === "report") {
+      report = data as Report;
+    } else if (event === "error") {
+      scanError = (data as { error: string }).error;
+    }
+  });
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parser.push(decoder.decode(value, { stream: true }));
+  }
+
+  if (scanError !== undefined) {
+    throw new Error(scanError);
+  }
+  if (report === undefined) {
+    throw new Error("Scan stream ended without a report");
+  }
+  return report;
 }
 
 export async function fetchRepos(): Promise<ReportSummary[]> {

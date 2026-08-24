@@ -2,6 +2,9 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { z } from "zod";
 import { GithubApiError, TokenMissingError } from "./errors";
+import type { ScanProgressListener } from "./progress";
+import { timedStage } from "./progress";
+import { withRetry } from "./retry";
 import type { CiStatus, PrData, ReviewState } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -10,36 +13,58 @@ export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 const GITHUB_GRAPHQL_URL = "https://api.github.com/graphql";
 
-const PR_NODE_QUERY = `
+// Small hydration chunks keep each query well under GitHub's execution timeout,
+// which otherwise surfaces as intermittent 502s on repos with many large PRs.
+const ENUMERATE_PAGE_SIZE = 100;
+const HYDRATE_CHUNK_SIZE = 25;
+const HYDRATE_CONCURRENCY = 4;
+const RETRYABLE_STATUSES = new Set([502, 503, 504]);
+
+const PR_LIST_QUERY = `
   query($owner: String!, $name: String!, $after: String) {
     repository(owner: $owner, name: $name) {
-      pullRequests(states: OPEN, first: 100, after: $after) {
-        nodes {
-          number
-          title
-          url
-          isDraft
-          createdAt
-          updatedAt
-          additions
-          deletions
-          changedFiles
-          mergeable
-          baseRefName
-          author { login }
-          labels(first: 20) { nodes { name } }
-          reviewDecision
-          latestReviews(first: 30) { nodes { state submittedAt } }
-          commits(last: 1) {
-            nodes { commit { statusCheckRollup { state } pushedDate committedDate } }
-          }
-          files(first: 100) { nodes { path additions deletions } }
-        }
+      pullRequests(states: OPEN, first: ${String(ENUMERATE_PAGE_SIZE)}, after: $after) {
+        nodes { number }
         pageInfo { hasNextPage endCursor }
       }
     }
   }
 `;
+
+const PR_FIELDS = `
+  number
+  title
+  url
+  isDraft
+  createdAt
+  updatedAt
+  additions
+  deletions
+  changedFiles
+  mergeable
+  baseRefName
+  author { login }
+  labels(first: 20) { nodes { name } }
+  reviewDecision
+  latestReviews(first: 30) { nodes { state submittedAt } }
+  commits(last: 1) {
+    nodes { commit { statusCheckRollup { state } pushedDate committedDate } }
+  }
+  files(first: 100) { nodes { path additions deletions } }
+`;
+
+function hydrateQuery(numbers: number[]): string {
+  const fields = numbers
+    .map((n, i) => `pr${String(i)}: pullRequest(number: ${String(n)}) { ${PR_FIELDS} }`)
+    .join("\n");
+  return `
+    query($owner: String!, $name: String!) {
+      repository(owner: $owner, name: $name) {
+        ${fields}
+      }
+    }
+  `;
+}
 
 const prNodeSchema = z.object({
   number: z.number(),
@@ -81,13 +106,17 @@ const prNodeSchema = z.object({
   }),
 });
 
-const pullRequestsPageSchema = z.object({
-  nodes: z.array(prNodeSchema),
-  pageInfo: z.object({
-    hasNextPage: z.boolean(),
-    endCursor: z.string().nullable(),
+const enumeratePageSchema = z.object({
+  pullRequests: z.object({
+    nodes: z.array(z.object({ number: z.number() })),
+    pageInfo: z.object({
+      hasNextPage: z.boolean(),
+      endCursor: z.string().nullable(),
+    }),
   }),
 });
+
+const hydrateResultSchema = z.record(prNodeSchema.nullable());
 
 const graphqlErrorSchema = z.object({
   message: z.string(),
@@ -96,9 +125,7 @@ const graphqlErrorSchema = z.object({
 const graphqlEnvelopeSchema = z.object({
   data: z
     .object({
-      repository: z.object({
-        pullRequests: pullRequestsPageSchema,
-      }),
+      repository: z.unknown(),
     })
     .nullable()
     .optional(),
@@ -259,67 +286,171 @@ export async function fetchOpenPrs(
   repo: string,
   token: string,
   fetchImpl: FetchLike = fetch,
+  onProgress?: ScanProgressListener,
 ): Promise<PrData[]> {
   const [owner, name] = repo.split("/");
   if (owner === undefined || name === undefined) {
     throw new GithubApiError(`Invalid repo format: ${repo}`, 400);
   }
 
-  const nodes: PrNode[] = [];
-  let after: string | null = null;
-  let hasNextPage = true;
-
-  while (hasNextPage) {
-    const response = await fetchImpl(GITHUB_GRAPHQL_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        query: PR_NODE_QUERY,
-        variables: { owner, name, after },
-      }),
-    });
-
-    if (!response.ok) {
-      const resetAt = rateLimitResetAt(response);
-      throw new GithubApiError(
-        `GitHub API request failed with status ${String(response.status)}`,
-        response.status,
-        resetAt,
-      );
-    }
-
-    const raw: unknown = await response.json();
-    const parsed = graphqlEnvelopeSchema.safeParse(raw);
-    if (!parsed.success) {
-      throw new GithubApiError(`Invalid GraphQL response: ${parsed.error.message}`, response.status);
-    }
-
-    if (parsed.data.errors !== undefined && parsed.data.errors.length > 0) {
-      const messages = parsed.data.errors.map((e) => e.message).join("; ");
-      throw new GithubApiError(`GraphQL errors: ${messages}`, response.status);
-    }
-
-    if (parsed.data.data === null || parsed.data.data === undefined) {
-      throw new GithubApiError("GraphQL response missing data", response.status);
-    }
-
-    const page = parsed.data.data.repository.pullRequests;
-    nodes.push(...page.nodes);
-    hasNextPage = page.pageInfo.hasNextPage;
-    after = page.pageInfo.endCursor;
-  }
+  const nodes = await timedStage(
+    onProgress,
+    "fetch-prs",
+    () => fetchPrNodes(owner, name, token, fetchImpl, onProgress),
+    (result) => `${String(result.length)} PRs`,
+  );
 
   // Branch rules only matter when reviewDecision is null; one fetch per distinct base branch.
   const branchesNeedingRules = [
     ...new Set(nodes.filter((n) => n.reviewDecision === null).map((n) => n.baseRefName)),
   ];
-  const rules = await Promise.all(
-    branchesNeedingRules.map((branch) => fetchBranchRule(owner, name, branch, token, fetchImpl)),
+  const rules = await timedStage(
+    onProgress,
+    "fetch-branch-rules",
+    () =>
+      Promise.all(
+        branchesNeedingRules.map((branch) =>
+          withRetry(() => fetchBranchRule(owner, name, branch, token, fetchImpl), {
+            isRetryable: isTransientGithubError,
+          }),
+        ),
+      ),
+    () => `${String(branchesNeedingRules.length)} ${branchesNeedingRules.length === 1 ? "branch" : "branches"}`,
   );
   const rulesByBranch = new Map(branchesNeedingRules.map((branch, i) => [branch, rules[i]]));
 
   return nodes.map((node) => mapNode(node, rulesByBranch.get(node.baseRefName)));
+}
+
+function isTransientGithubError(err: unknown): boolean {
+  return err instanceof GithubApiError && RETRYABLE_STATUSES.has(err.status);
+}
+
+/** POSTs a GraphQL query (with retry on transient failures) and returns `data.repository`. */
+async function graphqlRequest(
+  token: string,
+  fetchImpl: FetchLike,
+  query: string,
+  variables: Record<string, string | null>,
+): Promise<unknown> {
+  return withRetry(
+    async () => {
+      const response = await fetchImpl(GITHUB_GRAPHQL_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query, variables }),
+      });
+
+      if (!response.ok) {
+        const resetAt = rateLimitResetAt(response);
+        throw new GithubApiError(
+          `GitHub API request failed with status ${String(response.status)}`,
+          response.status,
+          resetAt,
+        );
+      }
+
+      const raw: unknown = await response.json();
+      const parsed = graphqlEnvelopeSchema.safeParse(raw);
+      if (!parsed.success) {
+        throw new GithubApiError(`Invalid GraphQL response: ${parsed.error.message}`, response.status);
+      }
+
+      if (parsed.data.errors !== undefined && parsed.data.errors.length > 0) {
+        const messages = parsed.data.errors.map((e) => e.message).join("; ");
+        throw new GithubApiError(`GraphQL errors: ${messages}`, response.status);
+      }
+
+      if (parsed.data.data === null || parsed.data.data === undefined) {
+        throw new GithubApiError("GraphQL response missing data", response.status);
+      }
+
+      return parsed.data.data.repository;
+    },
+    { isRetryable: isTransientGithubError },
+  );
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
+/** Runs fn over items with at most `limit` in flight, preserving item order in the result. */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      const item = items[index] as T;
+      results[index] = await fn(item);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+/**
+ * Two-phase fetch: enumerate PR numbers with cheap sequential pages, then
+ * hydrate full details in small parallel chunks. Keeps each query cheap
+ * enough to avoid GitHub's execution-timeout 502s on large repos.
+ */
+async function fetchPrNodes(
+  owner: string,
+  name: string,
+  token: string,
+  fetchImpl: FetchLike,
+  onProgress?: ScanProgressListener,
+): Promise<PrNode[]> {
+  const numbers: number[] = [];
+  let after: string | null = null;
+  let hasNextPage = true;
+  let pageCount = 0;
+
+  while (hasNextPage) {
+    const repository = await graphqlRequest(token, fetchImpl, PR_LIST_QUERY, { owner, name, after });
+    const parsed = enumeratePageSchema.safeParse(repository);
+    if (!parsed.success) {
+      throw new GithubApiError(`Invalid PR list response: ${parsed.error.message}`, 200);
+    }
+    const page = parsed.data.pullRequests;
+    numbers.push(...page.nodes.map((n) => n.number));
+    pageCount += 1;
+    onProgress?.({
+      stage: "fetch-prs",
+      status: "progress",
+      detail: `page ${String(pageCount)} · ${String(numbers.length)} PRs`,
+    });
+    hasNextPage = page.pageInfo.hasNextPage;
+    after = page.pageInfo.endCursor;
+  }
+
+  let hydrated = 0;
+  const chunkedNodes = await mapWithConcurrency(chunk(numbers, HYDRATE_CHUNK_SIZE), HYDRATE_CONCURRENCY, async (chunkNumbers) => {
+    const repository = await graphqlRequest(token, fetchImpl, hydrateQuery(chunkNumbers), { owner, name });
+    const parsed = hydrateResultSchema.safeParse(repository);
+    if (!parsed.success) {
+      throw new GithubApiError(`Invalid PR details response: ${parsed.error.message}`, 200);
+    }
+    // A null alias means the PR closed between enumerate and hydrate — skip it.
+    const nodes = chunkNumbers
+      .map((_, i) => parsed.data[`pr${String(i)}`])
+      .filter((n): n is PrNode => n !== null && n !== undefined);
+    hydrated += nodes.length;
+    onProgress?.({
+      stage: "fetch-prs",
+      status: "progress",
+      detail: `hydrated ${String(hydrated)}/${String(numbers.length)} PRs`,
+    });
+    return nodes;
+  });
+
+  return chunkedNodes.flat();
 }

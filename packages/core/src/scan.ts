@@ -2,6 +2,8 @@ import { readConfig } from "./config";
 import { CROSS_CUTTING, deriveComponents } from "./components";
 import type { FetchLike } from "./github";
 import { fetchOpenPrs, resolveToken } from "./github";
+import type { ScanProgressListener } from "./progress";
+import { timedStage } from "./progress";
 import type { Report, ReportPr } from "./report";
 import { writeReport } from "./report";
 import { evaluateDimension, REVIEWABILITY_FACTORS } from "./scoring";
@@ -64,11 +66,15 @@ export async function runScan(opts: {
   dir: string;
   fetchImpl?: FetchLike;
   env?: Record<string, string | undefined>;
+  onProgress?: ScanProgressListener;
 }): Promise<Report> {
-  const token = await resolveToken(opts.env);
-  const prs = await fetchOpenPrs(opts.repo, token, opts.fetchImpl);
-  const config = await readConfig(opts.dir);
-  const report = buildReport(opts.repo, prs, () => Date.now(), config.weights);
-  await writeReport(opts.dir, report);
+  const { onProgress } = opts;
+  const token = await timedStage(onProgress, "resolve-token", () => resolveToken(opts.env));
+  const prs = await fetchOpenPrs(opts.repo, token, opts.fetchImpl, onProgress);
+  const config = await timedStage(onProgress, "read-config", () => readConfig(opts.dir));
+  const report = await timedStage(onProgress, "build-report", () =>
+    buildReport(opts.repo, prs, () => Date.now(), config.weights),
+  );
+  await timedStage(onProgress, "write-report", () => writeReport(opts.dir, report));
   return report;
 }

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { reportSchema } from "../src/report";
 import { buildReport, runScan } from "../src/scan";
 import type { PrData } from "../src/types";
+import { fixturePages, twoPhaseFetch } from "./githubStub";
 
 const NOW = new Date("2026-08-21T00:00:00.000Z").getTime();
 
@@ -96,16 +97,8 @@ describe("buildReport", () => {
   });
 });
 
-function makeFetchStub() {
-  let call = 0;
-  return async (url: string) => {
-    if (url.includes("/rules/branches/")) {
-      return new Response("[]", { status: 200 });
-    }
-    call += 1;
-    const path = new URL(`./fixtures/prs-page${String(call)}.json`, import.meta.url);
-    return new Response(await readFile(path, "utf8"), { status: 200 });
-  };
+async function makeFetchStub() {
+  return twoPhaseFetch(await fixturePages()).fetchImpl;
 }
 
 describe("runScan", () => {
@@ -114,7 +107,7 @@ describe("runScan", () => {
     const report = await runScan({
       repo: "UiPath/flow-workbench",
       dir,
-      fetchImpl: makeFetchStub(),
+      fetchImpl: await makeFetchStub(),
       env: { GITHUB_TOKEN: "tok" },
     });
 
@@ -129,7 +122,7 @@ describe("runScan", () => {
     const reportDefault = await runScan({
       repo: "UiPath/flow-workbench",
       dir: dirDefault,
-      fetchImpl: makeFetchStub(),
+      fetchImpl: await makeFetchStub(),
       env: { GITHUB_TOKEN: "tok" },
     });
 
@@ -142,7 +135,7 @@ describe("runScan", () => {
     const reportCustom = await runScan({
       repo: "UiPath/flow-workbench",
       dir: dirCustom,
-      fetchImpl: makeFetchStub(),
+      fetchImpl: await makeFetchStub(),
       env: { GITHUB_TOKEN: "tok" },
     });
 

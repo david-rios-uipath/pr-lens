@@ -1,74 +1,8 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { GithubApiError, TokenMissingError } from "../src/errors";
 import { fetchOpenPrs, resolveToken } from "../src/github";
-
-const page = async (n: number) =>
-  new Response(await readFile(new URL(`./fixtures/prs-page${String(n)}.json`, import.meta.url), "utf8"), {
-    status: 200,
-  });
-
-const NODE_DEFAULTS = {
-  number: 1,
-  title: "A PR",
-  url: "https://github.com/o/r/pull/1",
-  isDraft: false,
-  createdAt: "2026-08-01T10:00:00Z",
-  updatedAt: "2026-08-02T10:00:00Z",
-  additions: 1,
-  deletions: 1,
-  changedFiles: 1,
-  mergeable: "MERGEABLE",
-  baseRefName: "main",
-  author: { login: "alice" },
-  labels: { nodes: [] },
-  reviewDecision: null,
-  latestReviews: { nodes: [] },
-  commits: {
-    nodes: [
-      {
-        commit: {
-          statusCheckRollup: { state: "SUCCESS" },
-          pushedDate: "2026-08-01T09:00:00Z",
-          committedDate: "2026-08-01T08:00:00Z",
-        },
-      },
-    ],
-  },
-  files: { nodes: [{ path: "a.ts", additions: 1, deletions: 1 }] },
-};
-
-type NodeOverrides = Record<string, unknown>;
-
-const gqlPage = (nodes: NodeOverrides[]) =>
-  new Response(
-    JSON.stringify({
-      data: {
-        repository: {
-          pullRequests: {
-            nodes: nodes.map((n) => ({ ...NODE_DEFAULTS, ...n })),
-            pageInfo: { hasNextPage: false, endCursor: null },
-          },
-        },
-      },
-    }),
-    { status: 200 },
-  );
-
-/** Routes GraphQL to the given page and /rules/branches/{branch} to per-branch rules. */
-function routedFetch(nodes: NodeOverrides[], rulesByBranch: Record<string, unknown[]>) {
-  const rulesCalls: string[] = [];
-  const fetchImpl = (url: string) => {
-    const match = /\/rules\/branches\/([^/?]+)$/.exec(url);
-    if (match?.[1] !== undefined) {
-      const branch = decodeURIComponent(match[1]);
-      rulesCalls.push(branch);
-      return Promise.resolve(new Response(JSON.stringify(rulesByBranch[branch] ?? []), { status: 200 }));
-    }
-    return Promise.resolve(gqlPage(nodes));
-  };
-  return { fetchImpl, rulesCalls };
-}
+import type { NodeOverrides } from "./githubStub";
+import { bodyText, fixturePages, twoPhaseFetch } from "./githubStub";
 
 const approvedAt = (submittedAt: string) => ({ state: "APPROVED", submittedAt });
 const pullRequestRule = (params: Record<string, unknown>) => ({ type: "pull_request", parameters: params });
@@ -84,20 +18,82 @@ describe("resolveToken", () => {
 });
 
 describe("fetchOpenPrs", () => {
-  it("paginates and maps nodes to PrData", async () => {
-    let call = 0;
-    const prs = await fetchOpenPrs("UiPath/flow-workbench", "tok", async (url) =>
-      url.includes("/rules/branches/") ? new Response("[]", { status: 200 }) : page(++call),
-    );
+  it("enumerates pages, hydrates, and maps nodes to PrData", async () => {
+    const { fetchImpl, enumerateCalls } = twoPhaseFetch(await fixturePages());
+    const prs = await fetchOpenPrs("UiPath/flow-workbench", "tok", fetchImpl);
+    expect(enumerateCalls).toEqual([2, 1]);
     expect(prs).toHaveLength(3);
     expect(prs[0]).toMatchObject({ number: 101, ci: "SUCCESS", reviewState: "APPROVED", approvals: 1 });
     expect(prs[1]).toMatchObject({ author: "ghost", mergeable: "CONFLICTING", ci: "FAILURE", isDraft: true });
     expect(prs[2]).toMatchObject({ ci: "PENDING", reviewState: "NONE" });
   });
 
+  it("hydrates in chunks of 25, preserving enumerate order", async () => {
+    const nodes: NodeOverrides[] = Array.from({ length: 30 }, (_, i) => ({
+      number: i + 1,
+      reviewDecision: "APPROVED",
+    }));
+    const { fetchImpl, hydrateCalls } = twoPhaseFetch([nodes]);
+    const prs = await fetchOpenPrs("o/r", "tok", fetchImpl);
+    expect(hydrateCalls.map((c) => c.length).sort((a, b) => b - a)).toEqual([25, 5]);
+    expect(prs.map((p) => p.number)).toEqual(nodes.map((n) => n.number));
+  });
+
+  it("skips PRs that disappear between enumerate and hydrate", async () => {
+    const stub = twoPhaseFetch([[{ number: 1, reviewDecision: "APPROVED" }, { number: 2, reviewDecision: "APPROVED" }]]);
+    // Enumerate advertises PR 3, but it's not hydratable (closed in between).
+    const fetchImpl = (url: string, init?: RequestInit) => {
+      if (bodyText(init).includes("pullRequests(")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: {
+                repository: {
+                  pullRequests: {
+                    nodes: [{ number: 1 }, { number: 2 }, { number: 3 }],
+                    pageInfo: { hasNextPage: false, endCursor: null },
+                  },
+                },
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      return stub.fetchImpl(url, init);
+    };
+    const prs = await fetchOpenPrs("o/r", "tok", fetchImpl);
+    expect(prs.map((p) => p.number)).toEqual([1, 2]);
+  });
+
+  it("retries a request that fails with 502 and succeeds", async () => {
+    const { fetchImpl } = twoPhaseFetch([[{ number: 1, reviewDecision: "APPROVED" }]]);
+    let failed = false;
+    const flaky = (url: string, init?: RequestInit) => {
+      if (!failed && bodyText(init).includes("pullRequest(number:")) {
+        failed = true;
+        return Promise.resolve(new Response("bad gateway", { status: 502 }));
+      }
+      return fetchImpl(url, init);
+    };
+    const prs = await fetchOpenPrs("o/r", "tok", flaky);
+    expect(failed).toBe(true);
+    expect(prs.map((p) => p.number)).toEqual([1]);
+  });
+
+  it("does not retry non-transient failures", async () => {
+    let calls = 0;
+    const fetchImpl = () => {
+      calls += 1;
+      return Promise.resolve(new Response("forbidden", { status: 401 }));
+    };
+    await expect(fetchOpenPrs("o/r", "tok", fetchImpl)).rejects.toBeInstanceOf(GithubApiError);
+    expect(calls).toBe(1);
+  });
+
   it("trusts a non-null reviewDecision and never fetches branch rules", async () => {
-    const { fetchImpl, rulesCalls } = routedFetch(
-      [{ reviewDecision: "CHANGES_REQUESTED", latestReviews: { nodes: [approvedAt("2026-08-02T00:00:00Z")] } }],
+    const { fetchImpl, rulesCalls } = twoPhaseFetch(
+      [[{ reviewDecision: "CHANGES_REQUESTED", latestReviews: { nodes: [approvedAt("2026-08-02T00:00:00Z")] } }]],
       {},
     );
     const prs = await fetchOpenPrs("o/r", "tok", fetchImpl);
@@ -106,8 +102,8 @@ describe("fetchOpenPrs", () => {
   });
 
   it("marks APPROVED when approvals meet the ruleset's required count", async () => {
-    const { fetchImpl } = routedFetch(
-      [{ latestReviews: { nodes: [approvedAt("2026-08-02T00:00:00Z")] } }],
+    const { fetchImpl } = twoPhaseFetch(
+      [[{ latestReviews: { nodes: [approvedAt("2026-08-02T00:00:00Z")] } }]],
       { main: [pullRequestRule({ required_approving_review_count: 1 })] },
     );
     const prs = await fetchOpenPrs("o/r", "tok", fetchImpl);
@@ -115,8 +111,8 @@ describe("fetchOpenPrs", () => {
   });
 
   it("marks REVIEW_REQUIRED when approvals fall short of the required count", async () => {
-    const { fetchImpl } = routedFetch(
-      [{ latestReviews: { nodes: [approvedAt("2026-08-02T00:00:00Z")] } }],
+    const { fetchImpl } = twoPhaseFetch(
+      [[{ latestReviews: { nodes: [approvedAt("2026-08-02T00:00:00Z")] } }]],
       { main: [pullRequestRule({ required_approving_review_count: 2 })] },
     );
     const prs = await fetchOpenPrs("o/r", "tok", fetchImpl);
@@ -124,8 +120,8 @@ describe("fetchOpenPrs", () => {
   });
 
   it("counts each reviewer once via latestReviews, so a superseded approval doesn't satisfy the rule", async () => {
-    const { fetchImpl } = routedFetch(
-      [{ latestReviews: { nodes: [{ state: "CHANGES_REQUESTED", submittedAt: "2026-08-03T00:00:00Z" }] } }],
+    const { fetchImpl } = twoPhaseFetch(
+      [[{ latestReviews: { nodes: [{ state: "CHANGES_REQUESTED", submittedAt: "2026-08-03T00:00:00Z" }] } }]],
       { main: [pullRequestRule({ required_approving_review_count: 1 })] },
     );
     const prs = await fetchOpenPrs("o/r", "tok", fetchImpl);
@@ -137,14 +133,8 @@ describe("fetchOpenPrs", () => {
     const rules = {
       main: [pullRequestRule({ required_approving_review_count: 1, require_last_push_approval: true })],
     };
-    const stale = routedFetch(
-      [{ latestReviews: { nodes: [approvedAt("2026-08-01T08:30:00Z")] } }],
-      rules,
-    );
-    const fresh = routedFetch(
-      [{ latestReviews: { nodes: [approvedAt("2026-08-01T09:30:00Z")] } }],
-      rules,
-    );
+    const stale = twoPhaseFetch([[{ latestReviews: { nodes: [approvedAt("2026-08-01T08:30:00Z")] } }]], rules);
+    const fresh = twoPhaseFetch([[{ latestReviews: { nodes: [approvedAt("2026-08-01T09:30:00Z")] } }]], rules);
     const [stalePrs, freshPrs] = await Promise.all([
       fetchOpenPrs("o/r", "tok", stale.fetchImpl),
       fetchOpenPrs("o/r", "tok", fresh.fetchImpl),
@@ -154,11 +144,11 @@ describe("fetchOpenPrs", () => {
   });
 
   it("falls back to approvals > 0 when the base branch has no review rule", async () => {
-    const { fetchImpl } = routedFetch(
-      [
+    const { fetchImpl } = twoPhaseFetch(
+      [[
         { number: 1, latestReviews: { nodes: [approvedAt("2026-08-02T00:00:00Z")] } },
         { number: 2, latestReviews: { nodes: [] } },
-      ],
+      ]],
       { main: [] },
     );
     const prs = await fetchOpenPrs("o/r", "tok", fetchImpl);
@@ -167,12 +157,12 @@ describe("fetchOpenPrs", () => {
   });
 
   it("fetches rules once per distinct base branch", async () => {
-    const { fetchImpl, rulesCalls } = routedFetch(
-      [
+    const { fetchImpl, rulesCalls } = twoPhaseFetch(
+      [[
         { number: 1, baseRefName: "develop" },
         { number: 2, baseRefName: "develop" },
         { number: 3, baseRefName: "release/1.0" },
-      ],
+      ]],
       {},
     );
     await fetchOpenPrs("o/r", "tok", fetchImpl);
@@ -180,11 +170,14 @@ describe("fetchOpenPrs", () => {
   });
 
   it("surfaces rate limits with reset time", async () => {
-    const resp = new Response("rate limited", {
-      status: 403,
-      headers: { "x-ratelimit-reset": "1787000000" },
-    });
-    await expect(fetchOpenPrs("o/r", "tok", () => Promise.resolve(resp))).rejects.toSatisfy(
+    const fetchImpl = () =>
+      Promise.resolve(
+        new Response("rate limited", {
+          status: 403,
+          headers: { "x-ratelimit-reset": "1787000000" },
+        }),
+      );
+    await expect(fetchOpenPrs("o/r", "tok", fetchImpl)).rejects.toSatisfy(
       (e: unknown) => e instanceof GithubApiError && e.status === 403 && e.rateLimitResetAt !== undefined,
     );
   });

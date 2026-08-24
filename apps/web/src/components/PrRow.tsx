@@ -4,6 +4,7 @@ import type { ReportPr } from "@pr-lens/core";
 import { useState } from "react";
 import type { JSX } from "react";
 import { agoLabel, reviewLabel, scoreOf } from "../lib/selectors";
+import { HintTooltip } from "./HintTooltip";
 import { ScoreBreakdown } from "./ScoreBreakdown";
 
 function scoreVariant(score: number): "success" | "attention" | "danger" {
@@ -40,19 +41,21 @@ export function PrRow({ pr, affinity }: { pr: ReportPr; affinity?: number }): JS
       }}
     >
       <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-        <Box
-          as="button"
-          type="button"
-          onClick={() => {
-            setBreakdownOpen((prev) => !prev);
-          }}
-          aria-expanded={breakdownOpen}
-          aria-controls={breakdownId}
-          aria-label={`Score ${String(score)} — why?`}
-          sx={{ background: "none", border: 0, p: 0, cursor: "pointer" }}
-        >
-          <Label variant={scoreVariant(score)}>{score}</Label>
-        </Box>
+        <HintTooltip title="Reviewability score" hint="click to learn more">
+          <Box
+            as="button"
+            type="button"
+            onClick={() => {
+              setBreakdownOpen((prev) => !prev);
+            }}
+            aria-expanded={breakdownOpen}
+            aria-controls={breakdownId}
+            aria-label={`Reviewability score ${String(score)} — click to learn more`}
+            sx={{ background: "none", border: 0, p: 0, cursor: "pointer" }}
+          >
+            <Label variant={scoreVariant(score)}>{score}</Label>
+          </Box>
+        </HintTooltip>
         {affinity !== undefined && (
           <Text sx={{ fontSize: 0, color: "fg.muted", whiteSpace: "nowrap" }}>
             aff {Math.round(affinity * 100)}

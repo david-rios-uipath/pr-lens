@@ -90,6 +90,17 @@ async function rawGet(base: string, rawPath: string): Promise<number> {
   return status;
 }
 
+function parseSse(body: string): { event: string; data: unknown }[] {
+  return body
+    .split("\n\n")
+    .filter((block) => block.trim().length > 0)
+    .map((block) => {
+      const event = /^event: (.+)$/m.exec(block)?.[1] ?? "message";
+      const data = /^data: (.+)$/m.exec(block)?.[1] ?? "null";
+      return { event, data: JSON.parse(data) as unknown };
+    });
+}
+
 function close(server: Server): Promise<void> {
   return new Promise((resolvePromise, reject) => {
     server.close((err) => {
@@ -328,6 +339,86 @@ describe("createServer", () => {
     expect(res.headers.get("content-type")).toContain("application/json");
     const body: unknown = await res.json();
     expect(body).toEqual({ error: "Method Not Allowed" });
+  });
+
+  it("POST /api/scan with Accept: text/event-stream streams progress then the report", async () => {
+    server = createServer(
+      baseDeps({
+        scan: async (_repo, onProgress) => {
+          onProgress?.({ stage: "resolve-token", status: "start" });
+          onProgress?.({ stage: "resolve-token", status: "done", elapsedMs: 5 });
+          await new Promise((r) => setTimeout(r, 5));
+          return FIXTURE_REPORT;
+        },
+      }),
+    );
+    const base = await listen(server);
+
+    const res = await fetch(`${base}/api/scan`, {
+      method: "POST",
+      headers: { Accept: "text/event-stream" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+
+    const events = parseSse(await res.text());
+    expect(events.map((e) => e.event)).toEqual(["progress", "progress", "report"]);
+    expect(events[0]?.data).toEqual({ stage: "resolve-token", status: "start" });
+    expect(events[2]?.data).toEqual(FIXTURE_REPORT);
+  });
+
+  it("streams an error event when the scan fails", async () => {
+    server = createServer(
+      baseDeps({
+        scan: () => Promise.reject(new TokenMissingError("No GitHub token found. Set GITHUB_TOKEN or run `gh auth login`.")),
+      }),
+    );
+    const base = await listen(server);
+
+    const res = await fetch(`${base}/api/scan`, {
+      method: "POST",
+      headers: { Accept: "text/event-stream" },
+    });
+    const events = parseSse(await res.text());
+    expect(events.at(-1)?.event).toBe("error");
+    expect((events.at(-1)?.data as { error: string }).error).toContain("GITHUB_TOKEN");
+  });
+
+  it("a second concurrent SSE subscriber replays earlier progress and shares one scan", async () => {
+    let calls = 0;
+    let emit: ((e: Parameters<NonNullable<Parameters<ServerDeps["scan"]>[1]>>[0]) => void) | undefined;
+    let finish: (() => void) | undefined;
+    server = createServer(
+      baseDeps({
+        scan: (_repo, onProgress) => {
+          calls++;
+          emit = onProgress;
+          onProgress?.({ stage: "resolve-token", status: "start" });
+          return new Promise((r) => {
+            finish = () => {
+              r(FIXTURE_REPORT);
+            };
+          });
+        },
+      }),
+    );
+    const base = await listen(server);
+
+    const sse = { method: "POST" as const, headers: { Accept: "text/event-stream" } };
+    const first = fetch(`${base}/api/scan`, sse);
+    await new Promise((r) => setTimeout(r, 20));
+    const second = fetch(`${base}/api/scan`, sse);
+    await new Promise((r) => setTimeout(r, 20));
+    emit?.({ stage: "resolve-token", status: "done", elapsedMs: 3 });
+    finish?.();
+
+    const [a, b] = await Promise.all([first, second]);
+    const eventsA = parseSse(await a.text());
+    const eventsB = parseSse(await b.text());
+    expect(calls).toBe(1);
+    for (const events of [eventsA, eventsB]) {
+      expect(events.map((e) => e.event)).toEqual(["progress", "progress", "report"]);
+    }
   });
 
   it("blocks a symlink inside webDist that escapes to a file outside it", async () => {

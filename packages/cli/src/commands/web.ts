@@ -8,8 +8,9 @@ import { createServer } from "../server";
 
 const DEFAULT_PORT = 4310;
 
+// tsup bundles to packages/cli/dist/main.js, so three levels up is the repo root.
 function resolveWebDist(): string | null {
-  const dist = fileURLToPath(new URL("../../../../apps/web/dist", import.meta.url));
+  const dist = fileURLToPath(new URL("../../../apps/web/dist", import.meta.url));
   return existsSync(dist) ? dist : null;
 }
 
@@ -29,9 +30,9 @@ export function registerWeb(program: Command): void {
       const server = createServer({
         dir,
         webDist: resolveWebDist(),
-        scan: async (repo?: string) => {
+        scan: async (repo, onProgress) => {
           const target = repo ?? (await resolveRepo({ dir }));
-          return runScan({ repo: target, dir });
+          return runScan({ repo: target, dir, ...(onProgress === undefined ? {} : { onProgress }) });
         },
         readReport: async (repo?: string) => {
           const target = repo ?? (await resolveRepo({ dir }));

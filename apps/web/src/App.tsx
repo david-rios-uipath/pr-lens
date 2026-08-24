@@ -19,8 +19,11 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchRepos, fetchReport, triggerScan } from "./api";
 import { FilterBar } from "./components/FilterBar";
 import { PrRow } from "./components/PrRow";
+import { ScanProgressIndicator } from "./components/ScanProgressIndicator";
 import { afterDismissRefreshError, afterLoadError, afterRefreshError, afterReportLoaded } from "./lib/appState";
 import type { LoadState } from "./lib/appState";
+import { applyScanEvent, initialScanProgress } from "./lib/scanProgress";
+import type { ScanProgress } from "./lib/scanProgress";
 import { DEFAULT_VIEW, affinityOf, agoLabel, authorCounts, componentCounts, selectView, unreviewedCount } from "./lib/selectors";
 import type { ViewOptions } from "./lib/selectors";
 
@@ -42,7 +45,7 @@ function Shell({ colorMode, children }: { colorMode: "dark" | "light"; children:
 export function App(): JSX.Element {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [view, setView] = useState<ViewOptions>(DEFAULT_VIEW);
-  const [scanning, setScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [colorMode, setColorMode] = useState<"dark" | "light">("dark");
   const [repos, setRepos] = useState<ReportSummary[]>([]);
   const [selectedRepo, setSelectedRepo] = useState<string | undefined>(undefined);
@@ -90,8 +93,10 @@ export function App(): JSX.Element {
   );
 
   const handleRefresh = useCallback(() => {
-    setScanning(true);
-    triggerScan(selectedRepo)
+    setScanProgress(initialScanProgress());
+    triggerScan(selectedRepo, (event) => {
+      setScanProgress((prev) => (prev === null ? prev : applyScanEvent(prev, event)));
+    })
       .then((report) => {
         setState(afterReportLoaded(report));
         // refresh the switcher's timestamps; a listing failure shouldn't flag the scan as failed
@@ -101,7 +106,7 @@ export function App(): JSX.Element {
         setState((prev) => afterRefreshError(prev, errorMessage(err)));
       })
       .finally(() => {
-        setScanning(false);
+        setScanProgress(null);
       });
   }, [selectedRepo]);
 
@@ -190,11 +195,13 @@ export function App(): JSX.Element {
           </Box>
           <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
             {colorModeToggle}
-            <Button onClick={handleRefresh} disabled={scanning}>
-              {scanning ? "Refreshing…" : "Refresh"}
+            <Button onClick={handleRefresh} disabled={scanProgress !== null}>
+              {scanProgress !== null ? "Refreshing…" : "Refresh"}
             </Button>
           </Box>
         </Box>
+
+        {scanProgress !== null && <ScanProgressIndicator progress={scanProgress} />}
 
         {refreshError !== null && (
           <Flash variant="danger" sx={{ mb: 3, display: "flex", alignItems: "center", justifyContent: "space-between" }}>

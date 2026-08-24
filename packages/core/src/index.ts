@@ -6,6 +6,7 @@ export * from "./report";
 export * from "./scoring";
 export * from "./components";
 export * from "./github";
+export * from "./progress";
 export * from "./config";
 export * from "./scan";
 export * from "./brief";
