@@ -1,0 +1,17 @@
+{
+  "name": "@pr-lens/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "pr-lens": "./dist/main.js" },
+  "exports": { ".": "./dist/main.js" },
+  "scripts": {
+    "build": "tsup src/main.ts --format esm --sourcemap",
+    "dev": "tsup src/main.ts --format esm --sourcemap --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@pr-lens/core": "workspace:*",
+    "commander": "^12.1.0"
+  }
+}
