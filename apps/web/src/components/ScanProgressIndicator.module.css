@@ -1,0 +1,33 @@
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-16);
+  margin-block-end: var(--base-size-16);
+  padding-block: var(--base-size-8);
+  padding-inline: var(--base-size-16);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background-color: var(--bgColor-muted);
+}
+
+.stage {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-4);
+}
+
+.doneIcon {
+  display: flex;
+  color: var(--fgColor-success);
+}
+
+.label {
+  font-size: var(--text-body-size-small);
+  color: var(--fgColor-default);
+}
+
+.labelPending {
+  composes: label;
+  color: var(--fgColor-muted);
+}

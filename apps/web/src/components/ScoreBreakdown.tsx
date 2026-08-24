@@ -1,6 +1,7 @@
-import { Box } from "@primer/react";
 import type { ReportPr } from "@pr-lens/core";
+import { clsx } from "clsx";
 import type { JSX } from "react";
+import styles from "./ScoreBreakdown.module.css";
 
 function pct(value: number): string {
   return `${String(Math.round(value * 100))}%`;
@@ -20,41 +21,25 @@ export function ScoreBreakdown({ pr, open, id }: ScoreBreakdownProps): JSX.Eleme
   if (!open) return null;
 
   return (
-    <Box id={id} as="table" sx={{ mt: 2, width: "100%", borderCollapse: "collapse", fontSize: 0 }}>
+    <table id={id} className={clsx(styles.table)}>
       <thead>
         <tr>
-          <Box as="th" sx={{ textAlign: "left", color: "fg.muted", pr: 2, pb: 1 }}>
-            Factor
-          </Box>
-          <Box as="th" sx={{ textAlign: "left", color: "fg.muted", pr: 2, pb: 1 }}>
-            Weight
-          </Box>
-          <Box as="th" sx={{ textAlign: "left", color: "fg.muted", pr: 2, pb: 1 }}>
-            Value
-          </Box>
-          <Box as="th" sx={{ textAlign: "left", color: "fg.muted", pb: 1 }}>
-            Reason
-          </Box>
+          <th className={clsx(styles.head)}>Factor</th>
+          <th className={clsx(styles.head)}>Weight</th>
+          <th className={clsx(styles.head)}>Value</th>
+          <th className={clsx(styles.headLast)}>Reason</th>
         </tr>
       </thead>
       <tbody>
         {breakdown.map((entry) => (
-          <Box as="tr" key={entry.factor} sx={{ color: entry.weight === 0 ? "fg.muted" : "fg.default" }}>
-            <Box as="td" sx={{ pr: 2, py: 1 }}>
-              {entry.factor}
-            </Box>
-            <Box as="td" sx={{ pr: 2, py: 1 }}>
-              {entry.weight}
-            </Box>
-            <Box as="td" sx={{ pr: 2, py: 1 }}>
-              {pct(entry.value)}
-            </Box>
-            <Box as="td" sx={{ py: 1 }}>
-              {entry.reason}
-            </Box>
-          </Box>
+          <tr key={entry.factor} className={clsx(entry.weight === 0 ? styles.rowUnweighted : undefined)}>
+            <td className={clsx(styles.cell)}>{entry.factor}</td>
+            <td className={clsx(styles.cell)}>{entry.weight}</td>
+            <td className={clsx(styles.cell)}>{pct(entry.value)}</td>
+            <td className={clsx(styles.cellLast)}>{entry.reason}</td>
+          </tr>
         ))}
       </tbody>
-    </Box>
+    </table>
   );
 }

@@ -1,8 +1,10 @@
 import { FilterIcon, SearchIcon, SortAscIcon, SortDescIcon } from "@primer/octicons-react";
-import { ActionList, ActionMenu, Avatar, Box, IconButton, TextInput } from "@primer/react";
+import { ActionList, ActionMenu, Avatar, IconButton, Stack, TextInput } from "@primer/react";
+import { clsx } from "clsx";
 import type { JSX } from "react";
 import { normalizeView } from "../lib/selectors";
 import type { SortKey, ViewOptions } from "../lib/selectors";
+import styles from "./FilterBar.module.css";
 import { FacetSelect } from "./FacetSelect";
 import type { FacetOption } from "./FacetSelect";
 
@@ -50,8 +52,8 @@ export function FilterBar({ components, authors, value, onChange }: FilterBarPro
   const activeToggles = toggles.filter((t) => value[t.key]).length;
 
   return (
-    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 3, mb: 3 }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
+    <Stack direction="horizontal" align="center" justify="space-between" gap="normal" className={clsx(styles.bar)}>
+      <Stack direction="horizontal" align="center" gap="condensed" className={clsx(styles.facets)}>
         <FacetSelect
           title="Filter by component"
           emptyLabel="All components"
@@ -74,15 +76,15 @@ export function FilterBar({ components, authors, value, onChange }: FilterBarPro
             emit({ ...value, authors });
           }}
         />
-      </Box>
+      </Stack>
 
-      <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+      <Stack direction="horizontal" align="center" gap="condensed" className={clsx(styles.controls)}>
         <ActionMenu>
           <ActionMenu.Anchor>
             <IconButton
               icon={FilterIcon}
               aria-label={`Filters${activeToggles > 0 ? ` (${String(activeToggles)} active)` : ""}`}
-              sx={{ color: activeToggles > 0 ? "accent.fg" : "fg.muted" }}
+              className={clsx(activeToggles > 0 ? styles.filterButtonActive : styles.filterButton)}
             />
           </ActionMenu.Anchor>
           <ActionMenu.Overlay>
@@ -97,7 +99,7 @@ export function FilterBar({ components, authors, value, onChange }: FilterBarPro
                     emit({ ...value, [toggle.key]: !value[toggle.key] });
                   }}
                 >
-                  <span className="text-nowrap">{toggle.label}</span>
+                  <span className={clsx(styles.toggleLabel)}>{toggle.label}</span>
                 </ActionList.Item>
               ))}
             </ActionList>
@@ -137,7 +139,7 @@ export function FilterBar({ components, authors, value, onChange }: FilterBarPro
             emit({ ...value, sortDir: value.sortDir === "desc" ? "asc" : "desc" });
           }}
         />
-      </Box>
-    </Box>
+      </Stack>
+    </Stack>
   );
 }
